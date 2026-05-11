@@ -1,0 +1,18 @@
+{
+  "integration": "codebuddy",
+  "version": "0.5.0",
+  "installed_at": "2026-05-11T11:04:51.828300+00:00",
+  "files": {
+    ".codebuddy/commands/speckit.analyze.md": "b92c88059063348e222d2272b4afcf7a9a71e9775111c7d994c0d36efc6c7bbf",
+    ".codebuddy/commands/speckit.checklist.md": "3414c94e289f0994d4175669bdd68ec24a51ed7d10b52a076d6b2997c243ce33",
+    ".codebuddy/commands/speckit.clarify.md": "b4ac3c08166cdbe3df087ddd82afc258256db9e19fae30034aa758b4a114f2dc",
+    ".codebuddy/commands/speckit.constitution.md": "45620ce5a443406efd05d7f48f90878df59b70ee5732ca1827710dfa0842ce80",
+    ".codebuddy/commands/speckit.implement.md": "0542e191674abaf1b05e8a425d707052b7b00193a2ca9068121e202c80614156",
+    ".codebuddy/commands/speckit.plan.md": "b4ec5d0af1a4106eba17a3a66dfe652b09f6dd0ca38a8b1027bedf569477a60f",
+    ".codebuddy/commands/speckit.specify.md": "d51f5b1a5b050a0abc90f140bcf17e6cc01e9cee7d675c1b267048e88ac7dac7",
+    ".codebuddy/commands/speckit.tasks.md": "b205be629381697381f8d96d329d30e9e8483455427241bbce16d184fd3a8f90",
+    ".codebuddy/commands/speckit.taskstoissues.md": "8634adbd5d6dc2cdacf8dfa60d4509df03aedf937b682308c1f84e994023826e",
+    ".specify/integrations/codebuddy/scripts/update-context.ps1": "a7fd0b81c008991ec8a28272ca4a9153b589af36240c34072766342df5bdb858",
+    ".specify/integrations/codebuddy/scripts/update-context.sh": "f14c288729c597c86cd020ed7f5f108990f5788b917dcea5942d00ef0647fde8"
+  }
+}
