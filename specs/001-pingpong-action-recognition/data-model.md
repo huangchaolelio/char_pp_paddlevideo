@@ -186,6 +186,48 @@ experiments/20260511-203015-a3f1c8e-pp_tsm_pingpong/
 
 见 **TimelineSegment**; JSON 是 TimelineSegment 数组 + 顶层 metadata.
 
+### 上游官方样例 pkl 结果 (`pp infer-pkl` 输出, US5 / FR-022, 2026-05-12 新增)
+
+```json
+{
+  "schema": "pkl-prediction-v1",
+  "input": {
+    "pkl_path": "/data/raw/pingpong_public/smoke/example_tennis.pkl",
+    "video_name": "2019年世界乒乓球锦标赛男单决赛马龙VS法尔克20190428-5-of-11",
+    "n_frames_in_pkl": 45,
+    "n_frames_sampled": 32
+  },
+  "model": {
+    "checkpoint": "/.../VideoSwin_tennis.pdparams",
+    "framework": "RecognizerTransformer",
+    "backbone": "SwinTransformer3D",
+    "head": "I3DHead",
+    "num_classes": 8
+  },
+  "ground_truth": {
+    "正反手": 0,
+    "动作类型": 7,
+    "发球": 1
+  },
+  "ground_truth_action_id": 7,
+  "ground_truth_action_name": "动作7",
+  "prediction": {
+    "top1_match_gt": true,
+    "topk": [
+      {"id": 7, "name": "动作7", "score": 0.9999},
+      {"id": 0, "name": "动作0", "score": 4.3e-05}
+    ]
+  },
+  "produced_at": "2026-05-12T03:35:15.426707+00:00"
+}
+```
+
+**字段规则**:
+- `ground_truth`: 必须**完整透传** pkl 中的 labels dict (即便上游模型只对其中一个任务做推理), 帮助下游消费方理解原始多任务标注上下文.
+- `ground_truth_action_id` / `ground_truth_action_name`: 单独命名上游模型推理目标对应的 GT id/name (动作类型字段), 避免与 `ground_truth` 中其他任务标签混淆 (FR-022).
+- `prediction.top1_match_gt`: 布尔值或 `null`. 当 `ground_truth.动作类型` 不存在时为 `null`; 存在时为 `topk[0].id == ground_truth.动作类型`.
+- `model.checkpoint`: 绝对路径或本仓库根的相对路径; **不**记录文件 hash (因为上游 BCEBOS 不提供 hash, 添加假 hash 会误导).
+
 ---
 
 ## TimelineSegment

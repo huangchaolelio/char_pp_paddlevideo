@@ -16,6 +16,12 @@
 - Q: 长视频如何分段以输出带时间戳的动作识别结果? → A: 采用**固定窗口 + 步长滑窗** (默认窗口 2s, 步长 1s, 具体值通过配置文件可调) 逐段推理, 对低于置信度阈值的窗口归为 "未知/背景" 类, 再将相邻同类窗口合并为一段; 不在 MVP 范围内引入专门的时序动作定位模型.
 - Q: 长视频推理的可视化产物形态? → A: 同时输出两份产物: (1) 在原视频上叠加"动作类别 + 置信度"文本的 **MP4 可视化视频**, (2) 结构化的 **JSON 时间轴文件** (区间列表, 字段包含 start、end、label、confidence); 可选产物 (HTML 报告、关键帧缩略图) 不纳入 MVP 范围.
 
+### Session 2026-05-12
+
+- Q: 在 AI Studio 数据未就绪时, 如何让团队/股东看到"上游官方乒乓球任务在我们的 3.11 环境下真的能跑起来"? → A: **新增 US5 + FR-020/021/022 + SC-007**, 通过加载上游 BCEBOS 公开提供的 `VideoSwin_tennis.pdparams` (380MB, 已实测 200 OK) + `example_tennis.pkl` (7.4MB) 端到端推理一次, Top-1 必须等于 pkl 内 `ground_truth.动作类型`. **关键发现**: 上游官方乒乓球模型是 **VideoSwin Transformer + I3DHead**, **不是 PP-TSM** — 这与本项目 US2 的 PP-TSM 业务主线并行存在, 不替换; 两者通过不同的 `models/` 子模块隔离 (`pp_tsm.py` vs `videoswin_tennis.py`).
+- Q: pkl 中含 `正反手 / 动作类型 / 发球` 三个标签字段, 模型只有一个 head, 推理时如何选择? → A: 上游 `videoswin_tabletennis.yaml::MODEL.head.num_classes=8` + `I3DHead` 单输出, 训练目标是**动作类型 (8 类)**; 其余两个字段在 pkl 中保留只作为多任务标注的留痕, 不被本项目的 `pp infer-pkl` 用作判定依据, 但**必须**在输出 JSON 中透传, 让用户看到完整标签上下文 (FR-022).
+- Q: 上游 8 个动作类别的具体名称是什么? → A: 上游 README 与 yaml 均**未公布**, AI Studio 竞赛 #127 的 metadata 中可能有; 本项目代码用 `动作0..动作7` 占位, 用户从 AI Studio 拿到真实 metadata 后应自行替换 (与 `pingpong_public.yaml` 的 8 类占位同步).
+
 ## 用户场景与测试 *(必填)*
 
 ### 用户故事 1 - 在本地复现 PaddleVideo 框架并验证可用 (优先级: P1)
@@ -80,6 +86,22 @@
 
 ---
 
+### 用户故事 5 - 复用 PaddleVideo 官方乒乓球样例验证完整推理路径 (优先级: P1)
+
+*(2026-05-12 新增) 作为复现 P1 的补充: 在尚未获得 AI Studio 竞赛 #127 训练数据时, 用户希望能用上游 BCEBOS 提供的真公开资源 (训练好的乒乓球权重 + 7.4MB 单样例 pkl) 立即验证整个推理路径 (架构 + 权重加载 + 预处理 + 输出 schema) 是否正确, 而无需先准备数据集.*
+
+**优先级原因**: 直接证明"PaddleVideo 复现 + 乒乓球任务"端到端真实可用; 与 US1 (上游环境健康度) 互补 — US1 验证"能 build_model + 跑随机张量", US5 验证"能加载真实训练权重 + 跑真实数据"; 是 US2 业务指标尚不可达时**唯一**能给团队/股东看的可信演示.
+
+**独立测试**: 不依赖 AI Studio 数据; 只需要互联网 + 既有 `.venv`. 单条命令完成: 下载样例 → 加载模型 → 推理 → 对比 GT.
+
+**验收场景**:
+
+1. **给定** 已 bootstrap 的环境 + 7.4MB `example_tennis.pkl` (`pp data-prepare` 在 manual 模式下自动下载) + 380MB `VideoSwin_tennis.pdparams` (用户用 README 给出的 curl 命令下载), **当** 用户运行 `pp infer-pkl --pkl <pkl> --checkpoint <pdparams>`, **那么** 系统输出 Top-K 预测 + 与 pkl 内 GT 标签的对比, 且 Top-1 应等于 GT (`动作类型: 7`).
+2. **给定** 样例 pkl 的标签结构含三个独立字段 (`正反手` / `动作类型` / `发球`, 揭示上游多任务标注但单 head 训练), **当** 系统输出 JSON 时, **那么** 必须把全部 3 个 GT 字段透出, 并明确说明模型推理目标是哪一个 (`ground_truth_action_id` 单独命名以避免歧义).
+3. **给定** checkpoint 文件缺失, **当** 用户运行 `pp infer-pkl`, **那么** 系统退出码 1 且 stderr 给出**确切的 curl 下载命令** (含完整 URL).
+
+---
+
 ### 边界情况
 
 - 当目标机器没有 GPU 或 CUDA 版本与 PaddlePaddle 不兼容时, 系统应给出明确的环境检查提示, 并提供 CPU 模式下的最小可运行回退路径(用于功能验证, 不保证训练速度)。
@@ -121,6 +143,12 @@
 - **FR-015**: 系统必须对 FR-014 的推理结果生成两份可视化产物: (a) 在原视频上叠加"动作类别 + 置信度"文本的 **MP4 可视化视频**; (b) 结构化的 **JSON 时间轴文件** (数组, 每个元素至少包含 `start`、`end`、`label`、`confidence` 字段). 两份产物必须在同一次调用中一并产出, 便于下游剪辑/统计工具直接消费.
 - **FR-016**: 系统在推理流程中遇到无法处理的输入(损坏文件、不支持格式、过短片段)时, 必须跳过并记录日志, 不得整体崩溃。
 
+#### 上游官方样例支持 (US5)
+
+- **FR-020**: 系统必须提供一条独立的推理命令, 接受 PaddleVideo 上游样例 pkl (元组形式: `(video_name, label_dict, list[jpeg_bytes])`) 与对应的乒乓球预训练权重, 在不需要任何业务数据准备的前提下完成: 反序列化 → JPEG 解码 → 均匀帧采样 (默认 `num_seg=32`, 与上游 `videoswin_tabletennis.yaml` 对齐) → ImageNet 标准化 → 喂给上游 `RecognizerTransformer + SwinTransformer3D + I3DHead`, 输出 Top-K 预测.
+- **FR-021**: 当上述命令的 checkpoint 文件缺失时, 退出码必须为 1, 且 stderr 必须包含可直接复制粘贴的 curl 下载命令 (含确切 BCEBOS URL), 不得引导用户去查文档自行查找.
+- **FR-022**: 输出 JSON 必须遵循 `pkl-prediction-v1` schema (见 data-model.md), 至少含: `input` (pkl 路径 / video_name / 帧数), `model` (checkpoint / framework / backbone / head / num_classes), `ground_truth` (pkl 中**全部**标签字段, 透传不解释), `ground_truth_action_id` (单独标注模型推理目标对应的 GT id, 避免多任务标签歧义), `prediction.topk` (排序后的 Top-K 列表), `prediction.top1_match_gt` (布尔值或 null).
+
 #### 可复现性与工程化
 
 - **FR-017**: 系统必须将所有训练/评估/推理使用的配置以文件形式纳入版本管理, 保证实验可复现。
@@ -146,6 +174,7 @@
 - **SC-004**: 在同一份数据、同一份配置和同样的随机种子下, 两次完整训练得到的测试集 Top-1 准确率差异不超过 ±2 个百分点。
 - **SC-005**: 数据准备脚本可在不修改源码的前提下接入新增的乒乓球类别或样本, 且新增数据后训练流程零改动可直接复用, 数据导入耗时随样本数线性增长。
 - **SC-006**: 至少 90% 的输入异常情况(损坏视频、不支持格式、过短片段)在推理过程中被捕获并跳过, 不会引发整体进程崩溃。
+- **SC-007**: 在 PaddleVideo 官方提供的 `example_tennis.pkl` 上, 使用官方 `VideoSwin_tennis.pdparams` 权重通过 `pp infer-pkl` 推理, Top-1 预测必须等于 pkl 内的 `ground_truth.动作类型` 真值, 且 Top-1 置信度 ≥ 0.90. (此项是 US5 的硬验收门槛, 与 SC-002 不同 — SC-002 需要 AI Studio 真实训练数据, SC-007 不需要.)
 
 ## 假设
 

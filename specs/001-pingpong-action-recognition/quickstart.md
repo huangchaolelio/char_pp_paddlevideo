@@ -146,6 +146,37 @@ bash scripts/bootstrap.sh                   # 创建 .venv (3.11) + 安装所有
 
 ---
 
+## 附加: 上游官方乒乓球样例推理 (US5, 不依赖业务训练数据)
+
+如果你想立即看到完整推理路径在你的环境中工作 (而不需要先注册 AI Studio 下载训练数据), 可以用 PaddleVideo 上游公开提供的:
+- 训练好的乒乓球权重 (380MB BCEBOS)
+- 单样例 pkl (7.4MB BCEBOS, 通过 `pp data-prepare` 的 manual 模式自动下载到 `data/raw/pingpong_public/smoke/`)
+
+```bash
+# 一次性下载权重 (380MB)
+mkdir -p data/raw/pingpong_public/checkpoints
+curl -fL -o data/raw/pingpong_public/checkpoints/VideoSwin_tennis.pdparams \
+  https://videotag.bj.bcebos.com/PaddleVideo-release2.2/VideoSwin_tennis.pdparams
+
+# 推理 (立即可用, 不需要 AI Studio 数据)
+.venv/bin/pp infer-pkl \
+  --pkl data/raw/pingpong_public/smoke/example_tennis.pkl \
+  --checkpoint data/raw/pingpong_public/checkpoints/VideoSwin_tennis.pdparams \
+  --topk 5
+```
+
+**期望输出 (SC-007)**:
+```
+📊 Top-5 预测:
+  1. 动作7 (id=7)  prob=0.9999  ← GT
+  2. ...
+✅ Top-1 与 GT 一致 (action_id=7)
+```
+
+注意: 此命令使用上游 **VideoSwin Transformer** 模型 (与本项目 PP-TSM 业务主线并行存在); 8 个动作类别的具体名称上游未公布, 当前用 `动作0..动作7` 占位.
+
+---
+
 ## 验证全流程的最小脚本 (smoke test, 可选)
 
 ```bash

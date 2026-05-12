@@ -218,14 +218,70 @@ Git 工作区脏时强制要求 `--allow-dirty` flag; 否则拒绝启动训练 (
 
 ---
 
+## R7 — 上游官方乒乓球模型接入策略 (US5, 2026-05-12 新增)
+
+**触发原因**:
+US2 (PP-TSM 业务训练) 受阻于 R2 的"半公开数据"约束 (AI Studio 注册下载, 需用户手动一次性准备). 但**上游 BCEBOS 提供了真公开可下载的乒乓球训练好的权重 + 单样例 pkl**, 足以做架构层的端到端推理演示, 与 US2 业务训练**互补**.
+
+**Decision**: 在不影响 US2 主线的前提下, 新增独立路径 `pp infer-pkl` 子命令支持上游官方乒乓球样例推理. 模型用 `RecognizerTransformer + SwinTransformer3D + I3DHead`, 与 US2 的 PP-TSM 并行存在, 两者通过 `src/pingpong_av/models/{pp_tsm,videoswin_tennis}.py` 隔离, 不共用业务配置流水线.
+
+**实地验证的 BCEBOS URL** (2026-05-12 200 OK):
+
+| URL | 大小 | 用途 |
+|-----|------|------|
+| `https://videotag.bj.bcebos.com/Data/example_tennis.pkl` | 7.4 MB | 单样例 pkl, 用于推理演示 |
+| `https://videotag.bj.bcebos.com/PaddleVideo-release2.2/VideoSwin_tennis.pdparams` | 380 MB | 训练好的乒乓球权重 |
+| `https://videotag.bj.bcebos.com/PaddleVideo-release2.2/VideoSwin_k400.pdparams` | — | K400 预训练 (本项目不直接用) |
+
+**pkl 实际格式** (实测):
+```
+(
+  video_name: str,                # '2019年世锦赛男单决赛马龙VS法尔克20190428-5-of-11'
+  labels: dict,                   # {'正反手': 0, '动作类型': 7, '发球': 1}
+  frames: list[bytes],            # JPEG-encoded RGB frames, 1280x720, 约 45 帧/clip
+)
+```
+
+**关键发现**:
+1. **架构**: 上游官方乒乓球模型**不是** PP-TSM (Q3 中默认基线), 而是 **VideoSwin Transformer** + I3DHead, `num_classes=8`. 这与 US2 的 PP-TSM 业务路线并存, 彼此不替换.
+2. **多任务标签 vs 单 head**: pkl 含 3 个独立任务标签字段 (`正反手` / `动作类型` / `发球`), 但 yaml 中 `MODEL.head.num_classes=8` 且只有一个 I3DHead — 说明上游训练目标是**动作类型**, 其余两个字段在 pkl 中保留只作多任务标注留痕.
+3. **类别名上游 README 未公布**: yaml 与 README 都没给 8 类的具体动作名. 本项目用 `动作0..动作7` 占位, 用户从 AI Studio metadata 中拿到真名后应自行替换.
+
+**预处理参数 (与上游 `videoswin_tabletennis.yaml::PIPELINE.test` 对齐)**:
+- 帧采样: `num_seg=32` 均匀采样 (注意: 与 PP-TSM 的 num_seg=8 不同)
+- Resize: 短边 = 256
+- CenterCrop: 224
+- Normalize: ImageNet mean/std
+
+**Alternatives considered**:
+- **把 VideoSwin 也接入 `pp_tsm.py` 的统一配置流水线**: 被拒 — 上游 yaml schema 差异大 (3D 骨干 + 多任务相关字段), 强行统一会污染 PP-TSM 主线; 用独立 `videoswin_tennis.py` 更清晰.
+- **不提供 `pp infer-pkl`, 让用户直接调用上游 `tools/predict.py`**: 被拒 — 上游 `tools/predict.py` 走的是 paddle inference 引擎 (需要先 `export_model.py` 生成 `.pdmodel` + `.pdiparams`), 步骤多、不与本项目的 manifest / schema 对齐.
+- **把 example_tennis.pkl 入库**: 被拒 — 7.4MB 二进制, 通过 `source.smoke_sample` 按需下载更合规.
+
+**输出给阶段 1 / tasks**:
+- `src/pingpong_av/models/videoswin_tennis.py` 实现模型加载 (调用上游 build_model + 加载 380MB 权重)
+- `src/pingpong_av/cli/infer_pkl.py` 实现 CLI 子命令 (pkl 解析 + 帧预处理 + 推理 + JSON 输出)
+- `data-model.md` 增加 `pkl-prediction-v1` schema
+- `contracts/cli.md` 增加第 7 个子命令 `pp infer-pkl`
+- 输出 schema 包含完整 ground_truth 透传 + 明确的 `ground_truth_action_id` 字段以避免多任务歧义 (FR-022)
+
+**实测结果** (2026-05-12):
+```
+.venv/bin/pp infer-pkl --pkl example_tennis.pkl --checkpoint VideoSwin_tennis.pdparams --topk 5
+→ Top-1: 动作7 (id=7)  prob=0.9999  ← 与 GT 一致 (✓ SC-007 通过)
+```
+
+---
+
 ## 已解决的所有 NEEDS CLARIFICATION
 
 | 来源 | 问题 | 解决方式 |
 |------|------|---------|
-| plan.md 技术背景 | 主要依赖的具体版本 | R3: Paddle 官方 3.11 wheel, PaddleVideo release/2.4 |
+| plan.md 技术背景 | 主要依赖的具体版本 | R3: Paddle 官方 3.11 wheel, PaddleVideo release/2.2.0 |
 | plan.md 技术背景 | 训练性能具体目标 | R4: 默认 50 epoch; 具体时长由 tasks 阶段在目标硬件上实测 |
-| spec.md 假设 | 具体选用哪个公开数据集 | R2: PaddleVideo 官方乒乓球示例数据集 |
+| spec.md 假设 | 具体选用哪个公开数据集 | R2 (修正版): 仅通过 AI Studio 半公开发布, manual 模式引导 |
 | spec.md Q4 | 滑窗默认参数 | R5: 2.0s / 1.0s / threshold=0.5 |
-| 章程 VIII | 上游 3.11 适配方式 | R3: 官方 wheel + patches/ + editable install |
+| 章程 VIII | 上游 3.11 适配方式 | R3: 官方 wheel + patches/ |
+| spec.md US5 (新增) | AI Studio 数据未就绪时如何演示完整推理 | R7: 通过 BCEBOS 公开权重 + 7.4MB 样例 pkl, `pp infer-pkl` 实测 Top-1 命中 |
 
 **结论**: 阶段 0 所有未知项已解决, 可进入阶段 1 (data-model / contracts / quickstart).

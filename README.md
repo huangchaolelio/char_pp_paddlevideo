@@ -34,6 +34,30 @@ bash scripts/bootstrap.sh --smoke
 
 ---
 
+## 立即上手: 上游官方乒乓球样例推理 (US5, 不需要训练数据)
+
+> 如果你想在 1 分钟内看到完整推理路径工作 (无需注册 AI Studio 下载训练数据):
+
+```bash
+# 一次性下载 380MB 权重 (BCEBOS, 真公开)
+mkdir -p data/raw/pingpong_public/checkpoints
+curl -fL -o data/raw/pingpong_public/checkpoints/VideoSwin_tennis.pdparams \
+  https://videotag.bj.bcebos.com/PaddleVideo-release2.2/VideoSwin_tennis.pdparams
+
+# 7.4MB 样例 pkl 已在 `pp data-prepare` 时自动下载到 data/raw/pingpong_public/smoke/
+# 直接推理:
+.venv/bin/pp infer-pkl \
+  --pkl data/raw/pingpong_public/smoke/example_tennis.pkl \
+  --checkpoint data/raw/pingpong_public/checkpoints/VideoSwin_tennis.pdparams \
+  --topk 5
+```
+
+**预期 (SC-007)**: Top-1 = `动作7`, 置信度 ≥ 0.99, 与 pkl 内 GT 一致.
+
+> 这条路径用的是上游官方 **VideoSwin TableTennis** 模型 (`SwinTransformer3D + I3DHead`, 8 类), 与本项目 PP-TSM 业务主线并行存在. 详见 [research.md R7](specs/001-pingpong-action-recognition/research.md).
+
+---
+
 ## 项目结构
 
 ```text
@@ -105,14 +129,15 @@ quickstart + 在 PR 中说明影响. 请参考章程 VI / VIII.
 | 1 设置 | T001–T006 | ✅ 6/6 | 骨架 / pyproject / submodule / patches |
 | 2 基础 | T007–T027 | ✅ 21/21 | utils / upstream_adapter / experiment / configs / CLI 骨架 |
 | 3 US1 复现 | T028–T034 | ✅ 7/7 | env-check 全绿 + smoke 模型 build_model + forward 通过 |
-| 4 US2 训练 | T035–T056 | ✅ 22/22 | **架构全通**; T056 端到端实测: Compose 6 ops + 真实 mp4 解码 + PP-TSM forward 全绿; 业务指标待用户 AI Studio 数据 |
+| 4 US2 训练 | T035–T056 | ✅ 22/22 | **架构全通**; T056 端到端实测; 业务指标 SC-002 待 AI Studio 数据 |
 | 5 US3 长视频 | T057–T065 | ✅ 9/9 | 滑窗 / 后处理 / 可视化 / 性能 0.01x ≤ 2x SC-003 |
 | 6 US4 数据扩充 | T066–T070 | ✅ 5/5 | local_dir / 类别表 sentinel / 端到端实测 |
 | 7 完善 | T071–T076 | ✅ 6/6 | 100 测试 + 章程合规自查 |
+| **8 US5 上游样例** | **T077–T080** | **✅ 4/4** | **VideoSwin TableTennis + pkl 推理; SC-007 实测 Top-1 0.9999 命中 GT** |
 
 **测试**: 100/100 通过 (单元 + 集成).
-**业务代码**: ~3900 行 (含本项目业务) + 2 个上游 patch (266 行).
-**MVP 架构完成度**: **76/76 任务 = 100%**. 业务指标验收待用户首次手动下载 AI Studio 竞赛 #127 乒乓球数据.
+**业务代码**: ~4200 行 (含本项目业务) + 2 个上游 patch (266 行).
+**MVP 架构完成度**: **80/80 任务 = 100%**. SC-007 已通过实测验收; SC-002 (top1 ≥ 70%) 待用户 AI Studio 数据.
 
 ---
 

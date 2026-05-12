@@ -160,6 +160,29 @@ def infer_clip_cmd(checkpoint: str, input_path: str, topk: int, output_path: str
     ))
 
 
+@cli.command(name="infer-pkl")
+@click.option("--pkl", "pkl_path", required=True, type=click.Path(exists=True, dir_okay=False),
+              help="PaddleVideo 官方乒乓球样例 pkl (含 video_name + 多任务标签 + JPEG 帧列表).")
+@click.option("--checkpoint", required=True, type=click.Path(exists=True, dir_okay=False),
+              help="VideoSwin_tennis.pdparams (380MB) — 上游 BCEBOS 提供的乒乓球训练权重.")
+@click.option("--topk", type=int, default=3, help="返回 Top-K 个预测 (默认 3).")
+@click.option("--num-seg", type=int, default=32,
+              help="均匀采样的帧数 (默认 32, 与上游 videoswin_tabletennis.yaml runtime_cfg.test.num_seg 对齐).")
+@click.option("--output", "output_path", type=click.Path(dir_okay=False), default=None,
+              help="结果 JSON 输出路径; 不指定时只输出到 stdout.")
+def infer_pkl_cmd(pkl_path: str, checkpoint: str, topk: int, num_seg: int,
+                  output_path: str | None) -> None:
+    """用上游 VideoSwin TableTennis 模型推理一个 PaddleVideo 样例 pkl 文件."""
+    from pingpong_av.cli import infer_pkl as _real
+    sys.exit(_real.run(
+        pkl_path=pkl_path,
+        checkpoint=checkpoint,
+        topk=topk,
+        num_seg=num_seg,
+        output_path=output_path,
+    ))
+
+
 @cli.command(name="infer-video")
 @click.option("--checkpoint", required=True, type=click.Path(exists=True, dir_okay=False))
 @click.option("--input", "input_path", required=True, type=click.Path(exists=True, dir_okay=False),

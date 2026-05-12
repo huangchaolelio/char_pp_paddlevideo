@@ -26,8 +26,10 @@
 | `pp eval` | 在测试集上评估模型 | FR-011 | 4/5 |
 | `pp infer-clip` | 单片段推理 | FR-013 | — (调试用) |
 | `pp infer-video` | 长视频端到端推理 + 可视化 | FR-014~016 | 5/5 |
+| `pp infer-pkl` | 用上游 VideoSwin TableTennis 权重推理样例 pkl (US5) | FR-020~022 | — (上游演示) |
 
 **quickstart 的 5 条命令** 对应上表中标注了位置的命令, 满足章程 VII (≤ 5 条命令端到端可运行).
+`pp infer-pkl` 是 US5 的独立路径, 不在 quickstart 主链, 但可作为上游官方乒乓球任务的端到端验证.
 
 ---
 
@@ -257,6 +259,49 @@ pp infer-video --checkpoint <path>
 **SC-003 时延对齐**: 该命令的实现必须保证单 GPU 环境下对 ≤ 10 分钟视频, 端到端耗时 ≤ 视频时长 × 2.
 
 **章程约束**: III (滑窗参数配置化), V (结构化 JSON), VII (是 quickstart 最后一步).
+
+---
+
+## `pp infer-pkl`
+
+**用途 (US5 / FR-020~022)**: 用 PaddleVideo 上游官方乒乓球训练好的权重 (`VideoSwin_tennis.pdparams`, 380MB) 推理一个上游样例 pkl (`example_tennis.pkl`, 7.4MB), 在 AI Studio 数据未就绪前演示完整推理路径.
+
+**与 `pp infer-clip` 的区别**:
+- `pp infer-clip` 接受**用户提供的 mp4** + **任意已训练的 PP-TSM checkpoint** (业务主线)
+- `pp infer-pkl` 接受**上游官方 pkl** + **上游官方 VideoSwin 权重** (US5 独立路径); 不走 PP-TSM, 不依赖 `pp train` 产物
+
+**用法**:
+
+```text
+pp infer-pkl --pkl <path.pkl> --checkpoint <VideoSwin_tennis.pdparams> [--topk 5] [--num-seg 32] [--output <json>]
+```
+
+**参数**:
+- `--pkl <path>`: 上游样例 pkl, 元组格式 `(video_name, label_dict, list[jpeg_bytes])`. 必填.
+- `--checkpoint <path>`: `VideoSwin_tennis.pdparams` 路径. 必填. 缺失时 stderr 给出**完整 curl 下载命令** (FR-021).
+- `--topk <int>`: 默认 3. 必须 ≥ 1.
+- `--num-seg <int>`: 均匀采样的帧数, 默认 32 (与 `videoswin_tabletennis.yaml::runtime_cfg.test.num_seg` 对齐).
+- `--output <path>`: 可选 JSON 输出路径; 不指定时只输出到 stdout.
+
+**输出 JSON schema** (data-model.md `pkl-prediction-v1`):
+- `input`: `{pkl_path, video_name, n_frames_in_pkl, n_frames_sampled}`
+- `model`: `{checkpoint, framework=RecognizerTransformer, backbone=SwinTransformer3D, head=I3DHead, num_classes=8}`
+- `ground_truth`: pkl 中**完整透传**的 labels dict (含 `正反手 / 动作类型 / 发球` 等)
+- `ground_truth_action_id`: 模型推理目标对应 GT (即 `ground_truth.动作类型`) — 单独命名避免多任务歧义
+- `prediction.topk`: 排序后 Top-K 列表, 每项 `{id, name, score}`
+- `prediction.top1_match_gt`: 布尔或 null
+- `produced_at`: ISO 8601 UTC
+
+**退出码**:
+- `0` 成功
+- `1` 用户输入错 (pkl/checkpoint 不存在, topk/num-seg 非法). checkpoint 缺失时 stderr 必须含 curl 下载命令.
+- `2` 环境问题 (上游不可导, 例如 patches 未应用)
+- `4` 运行时失败 (模型加载 / 推理异常 / 帧预处理异常)
+
+**验收闸门 (SC-007)**:
+在 `example_tennis.pkl` 上, Top-1 必须等于 pkl 内 `ground_truth.动作类型`, 且 Top-1 置信度 ≥ 0.90.
+
+**章程约束**: III (帧采样 / 标准化参数与上游 yaml 对齐, 不硬编码), V (JSON 必含 `ground_truth_action_id` 与 `top1_match_gt` 让验收可机器读), VI (`videoswin_tennis.py` 通过上游 `build_model` 接入, 不复制上游网络代码).
 
 ---
 
