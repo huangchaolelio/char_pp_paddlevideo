@@ -1,0 +1,38 @@
+# ============================================================
+# requirements/base.txt — 业务代码依赖 (章程 VIII)
+# ============================================================
+# 不含 PaddlePaddle / PaddleVideo:
+#   - 上游运行时依赖统一放在 requirements/upstream-py311.txt (T009 创建)
+#   - 业务代码与上游解耦, 没装上游也能 import pingpong_av
+#
+# 版本策略:
+#   - 主版本固定 (~=X.Y), 允许补丁与小版本更新
+#   - Python 3.11 兼容性优先
+#   - 与上游 PaddleVideo release/2.4 的间接依赖保持兼容
+# ============================================================
+
+# CLI 框架
+click~=8.1
+
+# 配置加载
+PyYAML~=6.0
+
+# 数值计算 (与 PaddlePaddle 兼容的 numpy 上界由上游决定, 此处只下界)
+numpy>=1.24,<2.0
+scipy~=1.11
+
+# 评估指标 (top-k / per-class / macro-avg, 章程 V)
+scikit-learn~=1.3
+
+# 视频读取 / 写入 / 可视化
+opencv-python-headless~=4.9
+av~=12.0           # PyAV: 视频解码备选, 替代 decord 在 3.11 wheel 缺失场景
+
+# 可视化输出: 混淆矩阵图
+matplotlib~=3.8
+
+# 进度条
+tqdm~=4.66
+
+# JSON Lines 解析 (data/splits/*.meta.jsonl)
+# 标准库 json 已够用, 不引入额外依赖

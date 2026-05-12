@@ -1,0 +1,3 @@
+# 一次性脚本目录 (非 CLI). 包含:
+#   bootstrap.sh                  创建 .venv + 安装依赖 + 拉取 submodule + 应用 patch
+#   apply_upstream_patches.sh     把 third_party/patches/*.patch 应用到 submodule

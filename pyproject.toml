@@ -1,0 +1,132 @@
+# ============================================================
+# pingpong_av — 基于 PaddleVideo 的乒乓球视频动作识别
+# ============================================================
+# 章程对齐:
+#   - 章程 VIII: requires-python 锁定到 3.11, 禁止其他版本进入主分支
+#   - 章程 III:  本文件仅声明工具元数据, 业务参数不在此处硬编码
+#   - 章程 VII:  entry point `pp` 是端到端 5 条命令的统一入口
+# ============================================================
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pingpong_av"
+version = "0.1.0"
+description = "Table-tennis video action recognition built on PaddleVideo (Python 3.11 isolated)."
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+license = { text = "Apache-2.0" }
+authors = [{ name = "char_pp_prj contributors" }]
+keywords = ["video", "action-recognition", "paddlevideo", "table-tennis", "pp-tsm"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Multimedia :: Video",
+    "License :: OSI Approved :: Apache Software License",
+]
+
+# 运行时依赖留在 requirements/base.txt 与 requirements/upstream-py311.txt 中,
+# pyproject 仅声明强约束 (Python 版本). 这样 `pip install -r` 可以分层管理上游/业务依赖.
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "black>=24.3",
+    "isort>=5.13",
+    "ruff>=0.4",
+    "pip-tools>=7.4",
+]
+
+[project.scripts]
+# 端到端 5 条命令入口 (章程 VII): pp env-check / data-prepare / train / eval / infer-clip / infer-video
+pp = "pingpong_av.cli:main"
+
+[project.urls]
+Repository = "https://cnb.cool/codebuddy/codebuddy-code"
+
+# ============================================================
+# setuptools: src/ layout
+# ============================================================
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["pingpong_av*"]
+
+[tool.setuptools.package-data]
+pingpong_av = ["py.typed"]
+
+# ============================================================
+# black
+# ============================================================
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+    \.venv
+  | third_party
+  | experiments
+  | data
+)/
+'''
+
+# ============================================================
+# isort
+# ============================================================
+[tool.isort]
+profile = "black"
+line_length = 100
+known_first_party = ["pingpong_av"]
+src_paths = ["src", "tests"]
+skip = [".venv", "third_party", "experiments"]
+
+# ============================================================
+# ruff
+# ============================================================
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [".venv", "third_party", "experiments", "data"]
+
+[tool.ruff.lint]
+# 启用核心规则集; 不开启可能与 black 冲突的格式规则
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade (3.11+ 现代化)
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "E501",  # 行长由 black 控制
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B011", "RUF012"]
+
+# ============================================================
+# pytest
+# ============================================================
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests/unit", "tests/integration"]
+addopts = "-ra --strict-markers --strict-config"
+filterwarnings = [
+    "error",
+    # 上游 paddle 可能产生 deprecation 警告; 在显式排除前先放行, 避免测试因上游噪声失败
+    "ignore::DeprecationWarning:paddle.*",
+    "ignore::DeprecationWarning:paddlevideo.*",
+]
+markers = [
+    "integration: 集成测试 (端到端启动 / 子进程调用)",
+    "gpu: 需要 GPU 才能运行的测试",
+]

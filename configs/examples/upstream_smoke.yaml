@@ -1,0 +1,54 @@
+# ============================================================
+# configs/examples/upstream_smoke.yaml
+# ------------------------------------------------------------
+# 章程对齐:
+#   I.   规范与计划优先: 对应 spec.md 用户故事 1 (US1) — 验证 PaddleVideo 在
+#        本项目隔离 .venv (Python 3.11) 中能跑通
+#   VII. 端到端可运行: 这是 quickstart 之外用于"环境健康度"的最小冒烟配置
+#   VIII. 隔离 Python 3.11: 本配置仅在 .venv/bin/pp 调用时生效
+#
+# 用法 (T031/T033 阶段):
+#   .venv/bin/pp env-check --strict           # 先确认环境
+#   # 然后用上游官方入口跑一次最小训练 + 推理 (绕过 pp train, 因为 pp train 在
+#   # T044 才完整接通); 命令位于 README.md 的 "上游 smoke 测试" 段.
+#
+# 本文件**不**走 pingpong_av.utils.config.load_config 校验路径
+# (没有 classes / split_version / model.name 等本项目必填字段),
+# 它只是给上游 main.py 直接读取的"上游原生配置"指针.
+# ============================================================
+
+# ---- 上游官方 PP-TSM Kinetics-400 基线配置的位置 ----
+# 此路径是本仓库内的相对路径, 由 third_party/PaddleVideo submodule 提供.
+upstream_config_path: third_party/PaddleVideo/configs/recognition/pptsm/pptsm_k400_frames_uniform.yaml
+
+# ---- 用上游官方提供的 demo 数据 ----
+# (US1 不需要乒乓球数据; 仅验证训练循环能跑起来. 数据由上游提供, 见上游 README.)
+upstream_demo_data: third_party/PaddleVideo/data/
+
+# ---- smoke 验证想要确认的 3 件事 ----
+# 1. paddle 能用 (paddle.utils.run_check() 通过)
+# 2. paddlevideo 能 import 并构建模型 (build_model)
+# 3. main.py 能解析配置且 train/test 入口至少跑 1 个 batch 不崩溃
+expected_acceptance:
+  - "import paddle 和 paddlevideo 不报错 (env-check --strict 已经覆盖)"
+  - "python third_party/PaddleVideo/main.py -c <upstream_config_path> --validate 能跑 ≥1 epoch 的 1 个 batch"
+  - "loss 数值是有限数 (非 NaN / Inf)"
+
+# ---- 调小至 smoke 规模的 override (在 README/T033 中以 -o 形式传给上游 main.py) ----
+# PaddleVideo main.py 接受 `-o key=value` 形式的 override.
+# 通过这些 override 把上游 50+ epoch 的官方训练压缩到 1 epoch + 极小 batch,
+# 仅用于环境冒烟, 不追求精度.
+smoke_overrides:
+  - "epochs=1"
+  - "DATASET.batch_size=2"
+  - "DATASET.test_batch_size=2"
+  - "DATASET.num_workers=0"
+  - "log_interval=1"
+  - "save_interval=999"        # 不让它存 checkpoint 占磁盘
+
+# ---- 已知备注 ----
+# - 此 smoke 流不写 experiments/<run_id>/manifest.json; 因此结果不能作为正式实验.
+#   章程 II 的可复现实验流必须走 pp train (T044 接通).
+# - 如果上游在 Python 3.11 下报 ImportError, 修复入口在
+#     third_party/patches/*.patch  (走 scripts/apply_upstream_patches.sh)
+#   不要修改 submodule 内文件的入库版本 (章程 VI).

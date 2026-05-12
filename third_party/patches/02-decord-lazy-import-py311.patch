@@ -1,0 +1,87 @@
+# Patch:        decord 延迟 import (Python 3.11 兼容)
+# Reason:       上游 paddlevideo/loader/pipelines/ 下 3 个文件在模块顶层 `import decord as de`:
+#                 - decode.py        (VideoDecoder, 仅 elif backend=='decord' 分支真正用到)
+#                 - decode_sampler.py (DecodeSampler.__call__ 中用到一次)
+#                 - multimodal.py    (导入但**从未实际使用**, 上游代码遗留)
+#               decord 0.4.x (上游 requirements.txt 钉死的版本) **没有 Python 3.11 wheel**;
+#               PyPI 上 newer decord 也没有 3.11 manylinux2014 wheel (2026-05-12 实测).
+#               这导致即便用户选择 VideoDecoder backend='cv2' 或 'pyav', 仅仅
+#               `from paddlevideo.loader.pipelines import Compose` 就会因模块级 import 失败.
+#
+# 修复策略 (最小侵入, 符合章程 VI):
+#               - decode.py / decode_sampler.py: 把 `import decord as de` 从模块顶层
+#                 移到实际用到 de 的函数体内 (lazy import). 这样:
+#                   * backend=='cv2' (本项目默认): decord 永不加载, 3.11 通过
+#                   * backend=='decord' (用户显式要求): 抛 ImportError 含上下文, 与原行为一致
+#               - multimodal.py: 该 import 在上游就是死代码 (grep '\bde\.' 在本文件无命中),
+#                 直接删除.
+#
+# 配套 (本项目侧):
+#               - 项目通过 `models/pp_tsm.py` 生成上游 yaml 时, 默认把 DATASET.*.format
+#                 与 PIPELINE.*.decode.backend 设为 'cv2' (cv2 在 cv2-python-headless~=4.9
+#                 中可用, 与 av~=12.0 一起已锁在 requirements/base.txt 中).
+#
+# 不修改:
+#               - decord 模块层 import 改成 `try: import decord` + 缓存, 看似优雅但会让
+#                 后续 lazy import 重复尝试. 现在的写法更直白.
+#
+# Upstream PR:  none (release/2.2.0 已 frozen; develop 仍是同样的 eager import)
+# Tested on:    da9a8ce8 + paddlepaddle-gpu==2.6.2 + Python 3.11.15
+#               实测 `from paddlevideo.loader.pipelines import Compose, VideoDecoder, Sampler` 成功
+# Removable when: 上游切换为 try/except 或 lazy import, 或本项目升级到支持 3.11 wheel 的 decord 版本.
+diff --git a/paddlevideo/loader/pipelines/decode.py b/paddlevideo/loader/pipelines/decode.py
+index 478ea04e..d14c66a5 100644
+--- a/paddlevideo/loader/pipelines/decode.py
++++ b/paddlevideo/loader/pipelines/decode.py
+@@ -16,7 +16,8 @@ import numpy as np
+ import av
+ import cv2
+ import pickle
+-import decord as de
++# decord 在 Python 3.11 上没有可用 wheel; 改为在使用 'decord' backend 时延迟 import.
++# 见 third_party/patches/02-decord-lazy-import-py311.patch
+ import math
+ import random
+ from ..registry import PIPELINES
+@@ -82,6 +83,7 @@ class VideoDecoder(object):
+             results['frames_len'] = len(sampledFrames)
+ 
+         elif self.backend == 'decord':
++            import decord as de  # 延迟 import (Python 3.11 兼容性, patches/02)
+             container = de.VideoReader(file_path)
+             frames_len = len(container)
+             results['frames'] = container
+diff --git a/paddlevideo/loader/pipelines/decode_sampler.py b/paddlevideo/loader/pipelines/decode_sampler.py
+index 2f8f8743..dea5ccc2 100644
+--- a/paddlevideo/loader/pipelines/decode_sampler.py
++++ b/paddlevideo/loader/pipelines/decode_sampler.py
+@@ -15,7 +15,7 @@
+ import random
+ import numpy as np
+ from PIL import Image
+-import decord as de
++# decord 在 Python 3.11 上没有 wheel; 改为延迟 import. 见 patches/02-decord-lazy-import-py311.patch
+ from ..registry import PIPELINES
+ 
+ 
+@@ -69,6 +69,7 @@ class DecodeSampler(object):
+         temporal_sample_index = results['temporal_sample_index']
+         temporal_num_clips = results['temporal_num_clips']
+ 
++        import decord as de  # 延迟 import (Python 3.11 兼容, patches/02)
+         vr = de.VideoReader(filepath)
+         videolen = len(vr)
+ 
+diff --git a/paddlevideo/loader/pipelines/multimodal.py b/paddlevideo/loader/pipelines/multimodal.py
+index f00f68be..98a28f6b 100644
+--- a/paddlevideo/loader/pipelines/multimodal.py
++++ b/paddlevideo/loader/pipelines/multimodal.py
+@@ -15,7 +15,7 @@
+ import random
+ import numpy as np
+ from PIL import Image
+-import decord as de
++# decord 在本文件实际未被使用; 移除以兼容 Python 3.11 (patches/02-decord-lazy-import-py311.patch).
+ import copy
+ import json
+ from ..registry import PIPELINES

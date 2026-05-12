@@ -1,0 +1,6 @@
+# 上游 PaddleVideo 的兼容性补丁目录 (章程 VI).
+# 每个补丁:
+#   - 文件名前缀 NN- (两位数字, 决定应用顺序);
+#   - 体内以 `git format-patch` 或 unified diff 格式;
+#   - 补丁文件同名的 README 或 head 注释说明"为什么打、引用 issue/commit"。
+# `scripts/apply_upstream_patches.sh` 按文件名顺序应用这些补丁.

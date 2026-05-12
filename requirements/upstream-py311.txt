@@ -1,0 +1,56 @@
+# ============================================================
+# requirements/upstream-py311.txt — 上游 PaddleVideo 在 Python 3.11 下的适配层
+# ============================================================
+# 章程对齐:
+#   - 章程 VIII: 上游 requirements.txt 不得直接生效, 必须经此 3.11 适配层
+#   - 章程 VI:  上游源码不变, 通过依赖替换 + 必要时 third_party/patches/ 兼容
+#   - 章程 II:  锁文件 requirements/lock.txt 由 pip-compile 在 3.11 下生成入库
+#
+# 适配对象:
+#   third_party/PaddleVideo/requirements.txt @ commit da9a8ce8 (release/2.2.0):
+#     numpy
+#     pandas
+#     tqdm
+#     PyYAML>=5.1
+#     opencv-python==4.2.0.32     <- 无 3.11 wheel, 必须 override
+#     decord==0.4.2               <- 无 3.11 wheel, 必须 override (改用 PyAV 兜底)
+#     av==8.0.3                   <- 无 3.11 wheel, 必须 override
+#     scipy==1.6.3                <- 无 3.11 wheel, 必须 override
+#     scikit-image
+#
+# 兼容性策略 (research.md R3):
+#   - PaddlePaddle-GPU 自 2.5.x 起提供 Python 3.11 官方 wheel; 选 2.6.x 系列, 与 PaddleVideo
+#     release/2.2.0 内部的 paddle API 调用兼容.
+#   - opencv / scipy / av / decord 全部上调到提供 3.11 wheel 的最低稳定版本;
+#     业务代码 (requirements/base.txt) 已锁定相同主版本, 二者必须保持一致.
+#   - 如果某个上游模块代码硬依赖于被淘汰的版本特定 API (比如 decord 0.4.x 的旧 reader), 则在
+#     third_party/patches/NN-*.patch 中修复, 不在此文件中"为兼容而保留旧版".
+# ============================================================
+
+# ---- PaddlePaddle 官方 GPU wheel (3.11 支持) ----
+# 注: 安装时通常需指定 paddle 官方 pip 源, 由 scripts/bootstrap.sh 处理 (-i / --index-url).
+paddlepaddle-gpu==2.6.2
+
+# ---- 上游 requirements.txt 中无版本约束的依赖 (3.11 友好版本) ----
+pandas~=2.1
+scikit-image~=0.22
+
+# ---- 上游钉死了旧版但 3.11 不存在 wheel 的依赖, 这里 override ----
+# (与 requirements/base.txt 保持同一主版本, 避免 pip 冲突)
+opencv-python-headless~=4.9     # 替代上游 opencv-python==4.2.0.32
+av~=12.0                        # 替代上游 av==8.0.3
+scipy~=1.11                     # 替代上游 scipy==1.6.3
+
+# 不引入 decord:
+#   上游 decord==0.4.2 在 3.11 下无 wheel; 通过 third_party/patches/ 把 PaddleVideo 中
+#   `from decord import VideoReader` 替换为 PyAV (av) 的等价封装. 保持解码后帧的形状一致.
+
+# numpy / tqdm / PyYAML 已在 requirements/base.txt 中固定, 此处不重复声明
+# 以避免 pip 解析器需要在两处对齐版本号.
+
+# ---- 备注 ----
+# 升级该文件的触发条件:
+#   1. submodule 升级到新的 PaddleVideo release;
+#   2. PaddlePaddle 发布新的 3.11 wheel 修复了已知问题;
+#   3. opencv/scipy/av 等出现影响推理结果一致性的破坏性变更.
+# 每次升级**必须**重新生成 requirements/lock.txt, 重跑 quickstart 全流程, 并在 PR 中说明.

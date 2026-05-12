@@ -1,0 +1,101 @@
+# ============================================================
+# configs/datasets/pingpong_public.yaml
+# ------------------------------------------------------------
+# 章程对齐:
+#   III. 配置驱动: 本文件是数据集元信息的唯一权威来源
+#   IV. 数据完整性: split_version 每次重新划分必须 bump
+#
+# 数据来源 (research.md R2 修正版):
+#   PaddleVideo `release/2.2.0` 不提供任何**直接公开下载**的乒乓球训练数据集.
+#   上游 README + 实地调研结论:
+#     - applications/TableTennis/ActionRecognition/README.md "数据准备" 段写的是 TODO
+#     - 上游把用户引向**百度 AI Studio 竞赛 #127**: 需要注册账号 + 报名后才能下载
+#       https://aistudio.baidu.com/aistudio/competition/detail/127/0/introduction
+#     - BCEBOS 上仅有训练好的模型权重 + 7.4MB 的单样例 pkl, 没有完整训练集
+#
+#   因此本配置采用 source.type=manual:
+#     - 不下载, 不编造 URL
+#     - 由 `pp data-prepare` 检测哨兵文件 (data/raw/pingpong_public/.ready) 是否存在
+#     - 缺失则给出明确指引到 AI Studio 竞赛页, 退出码 1
+#
+# 自定义数据 (US4 场景): 见 `pingpong_custom.example.yaml` (source.type=local_dir).
+# ============================================================
+
+# ---- 数据集身份 ----
+name: pingpong_public          # 数据集短名
+split_version: v0.1            # 每次重新划分必须 bump (章程 IV)
+
+# ---- 数据源: manual 模式 (用户从 AI Studio 手动下载) ----
+source:
+  type: manual
+  origin: "AI Studio Competition 127 (PaddleVideo 官方乒乓球任务)"
+  origin_url: "https://aistudio.baidu.com/aistudio/competition/detail/127/0/introduction"
+  requires_registration: true
+
+  # 用户下载并解压后, 数据应位于 paths.raw_dir/<name>/ 下;
+  # data-prepare 通过下面的哨兵文件存在性来判定准备就绪.
+  sentinel_relpath: ".ready"   # 相对 paths.raw_dir/<name>/
+
+  # 准备步骤 (data-prepare 在哨兵不存在时打印这些行作为指引)
+  manual_steps:
+    - "1) 注册 AI Studio 账号 (如已有可跳过)"
+    - "2) 访问竞赛页报名: https://aistudio.baidu.com/aistudio/competition/detail/127/0/introduction"
+    - "3) 在竞赛页下载 训练集 + 验证集 视频与标注"
+    - "4) 解压到本仓库的 data/raw/pingpong_public/ 下"
+    - "5) 在 data/raw/pingpong_public/ 中创建空文件 .ready 作为完成标记"
+    - "6) 重新运行 `pp data-prepare --config configs/datasets/pingpong_public.yaml`"
+
+  # 可选: 7.4MB 真公开样例 pkl, 用于 `pp infer-clip` 的端到端 smoke
+  # (该 URL 已实地验证 200 OK, 但只是单样本, **不能**用作训练数据)
+  smoke_sample:
+    url: "https://videotag.bj.bcebos.com/Data/example_tennis.pkl"
+    relpath: "smoke/example_tennis.pkl"   # 相对 paths.raw_dir/<name>/
+
+# ---- 划分策略 ----
+# manual 模式默认按 by_video_ratio 划分; 若用户的解压目录中已含 train.list / val.list,
+# data-prepare 会自动检测并优先使用 (官方划分).
+split_strategy: by_video_ratio
+ratios:
+  train: 0.70
+  val:   0.15
+  test:  0.15
+seed: 2026                     # 划分种子 (与训练种子独立)
+
+# ---- 类别表 (章程 III) ----
+#
+# **重要 (research.md R2 修正)**:
+#   PaddleVideo 上游 README **未公布**乒乓球任务的具体类别名 (只在 yaml 中给了 num_classes=8).
+#   AI Studio 竞赛 #127 的类别集会在用户报名解压后通过 metadata 看到.
+#
+# 下方 8 类是**项目内部对乒乓球技术动作的标准化命名**, 用作:
+#   - 训练时的 label_id ↔ name 映射 (id 必须 0..N-1 连续)
+#   - 可视化标签 (display_name 中文)
+#
+# 实际数据集解压后, 用户**必须**根据 metadata 调整本表 (改 name 或增减类别) 并 bump
+# split_version. T069 (新增类别软提醒) 会在 data-prepare 时检测此变化.
+#
+classes:
+  - { id: 0, name: serve,            display_name: "发球",       description: "开球动作 (含抛球+拍球)" }
+  - { id: 1, name: forehand_attack,  display_name: "正手攻",     description: "正手发力击球" }
+  - { id: 2, name: backhand_attack,  display_name: "反手攻",     description: "反手发力击球" }
+  - { id: 3, name: forehand_push,    display_name: "正手推挡",   description: "" }
+  - { id: 4, name: backhand_push,    display_name: "反手推挡",   description: "" }
+  - { id: 5, name: forehand_chop,    display_name: "正手削球",   description: "" }
+  - { id: 6, name: backhand_chop,    display_name: "反手削球",   description: "" }
+  - { id: 7, name: smash,            display_name: "扣杀",       description: "" }
+
+# ---- 片段切分参数 (如果原始数据是长视频, data-prepare 在切片时使用) ----
+clip:
+  target_duration_sec: 2.0
+  min_duration_sec: 1.0
+  fps_target: null
+
+# ---- 输出目录 ----
+paths:
+  raw_dir:    data/raw           # 用户从 AI Studio 下载后解压到此
+  clip_dir:   data/clips
+  splits_dir: data/splits        # 此目录下的 *.txt / *.meta.jsonl 入库 (章程 IV)
+
+# ---- 类别样本量校验 ----
+validation:
+  min_samples_per_class: 10

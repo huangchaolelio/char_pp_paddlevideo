@@ -1,0 +1,5 @@
+# 训练/评估/推理配置. 每个子目录:
+#   datasets/     公开数据集元信息 + 类别表 + split 版本
+#   models/       模型 + 训练超参 (默认基线: PP-TSM)
+#   inference/    推理参数 (滑窗窗口/步长/阈值)
+#   examples/     上游示例与 smoke 测试用最小配置

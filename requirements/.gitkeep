@@ -1,0 +1,4 @@
+# Python 依赖清单目录 (章程 VIII).
+#   base.txt                业务代码依赖
+#   upstream-py311.txt      PaddlePaddle-GPU 在 Python 3.11 下的具体 wheel 版本
+#   lock.txt                由 pip-compile 产出的完整锁文件 (入库)

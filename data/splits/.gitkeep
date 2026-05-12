@@ -1,0 +1,3 @@
+# 数据划分 list 文件入库目录 (章程 IV).
+# 此目录下的 train.txt / val.txt / test.txt / *.meta.jsonl 由 `pp data-prepare` 生成,
+# 且**必须**入库. data/raw/ 与 data/clips/ 下的大文件仍然通过 .gitignore 排除.

@@ -1,0 +1,94 @@
+# ============================================================
+# configs/datasets/pingpong_custom.example.yaml
+# ------------------------------------------------------------
+# 用户故事 4 (US4) 自定义数据集**示例模板**.
+# 复制为 `pingpong_custom.yaml`(被 .gitignore 排除) 或者其他名字, 并按下方注释填空.
+#
+# 章程对齐:
+#   III. 配置驱动: 类别表 / 数据路径 / 划分参数全部在配置中, 不在源码硬编码
+#   IV.  数据完整性:
+#        - split_version 必须每次重新划分都 bump (这是新实验)
+#        - splitter 会按 source_video_id 分层, 同源不跨 split
+#        - 划分结果 list 文件入库 (data/splits/*.txt)
+# ============================================================
+
+# ---- 数据集身份 ----
+name: pingpong_custom
+split_version: v1.0          # **每次重新划分必须 bump** (例: v1.1, v2.0); 否则视同污染上一个划分
+
+# ---- 数据源: 本地目录模式 (US4 主用法) ----
+source:
+  type: local_dir
+  # 你的本地数据目录, 可以是绝对路径或相对仓库根. 推荐结构:
+  #
+  #   /your/dataset/
+  #   ├── serve/
+  #   │   ├── match01/        ← source_video_id (同源所有片段必须只在一个 split)
+  #   │   │   ├── clip0.mp4
+  #   │   │   ├── clip1.mp4
+  #   │   │   └── ...
+  #   │   └── match02/
+  #   │       └── ...
+  #   ├── forehand_attack/
+  #   │   └── ...
+  #   └── ...
+  #
+  # 或者, 平铺 + labels.csv 形式 (data/public_datasets.py 也支持):
+  #   /your/dataset/
+  #   ├── labels.csv           ← 列: clip_path, source_video_id, label_name
+  #   └── clips/
+  #       └── *.mp4
+  path: /abs/path/to/your/pingpong_custom_data/
+
+# ---- 划分策略 ----
+# 如果你已有官方 train.txt/val.txt/test.txt 在数据目录下, 用 "official" 即可;
+# 否则用 "by_video_ratio" 让本项目按 source_video_id 分层抽样.
+split_strategy: by_video_ratio
+ratios:
+  train: 0.70
+  val:   0.15
+  test:  0.15
+seed: 2026                   # 划分用种子; 同 seed 同 ratios → 同样的划分结果
+
+# ---- 类别表 (章程 III: 必须显式) ----
+# id 必须从 0 连续到 N-1; name 仅 [a-z0-9_]; display_name 可中文.
+# **重要**: 增加新类别 → 必须 bump split_version (上方), 视为新实验 (章程 IV).
+classes:
+  - { id: 0, name: serve,            display_name: "发球" }
+  - { id: 1, name: forehand_attack,  display_name: "正手攻" }
+  - { id: 2, name: backhand_attack,  display_name: "反手攻" }
+  # 添加新类别示例 (取消注释并 bump split_version 到 v1.1+):
+  # - { id: 3, name: forehand_loop,  display_name: "正手弧圈" }
+  # - { id: 4, name: backhand_loop,  display_name: "反手弧圈" }
+
+# ---- 输出目录 (一般不改) ----
+paths:
+  raw_dir:   data/raw
+  clip_dir:  data/clips
+  splits_dir: data/splits
+
+# ---- 类别样本量校验 ----
+# 在 data-prepare 完成时, train 集中样本数低于此阈值的类别会打 warning.
+# (这是软提醒, 不阻断流程; 但严重不平衡时建议增补样本)
+validation:
+  min_samples_per_class: 10
+
+# ============================================================
+# 接入到训练 (零代码改动, US4 验收点)
+# ============================================================
+# 假设你的自定义配置文件叫 configs/datasets/pingpong_custom.yaml:
+#
+#   .venv/bin/pp data-prepare --config configs/datasets/pingpong_custom.yaml --force
+#   .venv/bin/pp train        --config configs/models/pp_tsm_pingpong.yaml
+#
+# 注意:
+#   - configs/models/pp_tsm_pingpong.yaml 中的 classes 数组**必须**与本文件一致,
+#     否则 T042 的 _ensure_classes_match 会抛错 (章程 III 防漂移).
+#   - 改类别时, dataset 与 model 两份 yaml 都要改; 推荐保留 dataset 为权威源,
+#     在 PR commit message 中引用本文件 + bump split_version.
+#
+# ============================================================
+# 切换回公开数据集
+# ============================================================
+# 任何时候都可以切换回 configs/datasets/pingpong_public.yaml (PaddleVideo 官方数据集),
+# 它使用 source.type=url_list 与 split_strategy=official, 由数据集自带划分文件.

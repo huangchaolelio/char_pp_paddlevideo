@@ -1,0 +1,57 @@
+# ============================================================
+# configs/inference/sliding_window.yaml
+# ------------------------------------------------------------
+# 章程对齐:
+#   III. 配置驱动: 滑窗参数 / 阈值 / 合并策略全部由配置决定
+#   V.   评估纪律: 此配置只决定推理流, 不影响测试集评估指标
+#
+# research.md R5 约定:
+#   - 默认窗口 2.0s, 步长 1.0s (50% 重叠)
+#   - 置信度阈值 0.5; 低于阈值的窗口归入 "unknown"
+#   - 相邻同类窗口合并 (label 相同 + 间隔 ≤ stride)
+#   - JSON 时间轴字段含 start, end, label, label_id, confidence, n_windows
+#
+# 适用命令: `pp infer-video`  (FR-014, FR-015, FR-016)
+# ============================================================
+
+# ---- 滑窗采样 ----
+window:
+  duration_sec: 2.0            # 单个滑动窗口的时长 (秒)
+  stride_sec:   1.0            # 相邻窗口的步长 (秒); ≤ duration_sec 表示有重叠
+  # 滑窗末端处理: 'truncate' (丢弃不足 window_sec 的尾段) 或 'pad' (复制最后一帧补齐)
+  edge_policy: truncate
+
+# ---- 后处理: 阈值 + 合并 ----
+postprocess:
+  conf_threshold: 0.5          # 单窗口最高置信度低于此值时, 标签置为 'unknown' (label_id=-1)
+  merge_gap_sec: 1.0           # 同类窗口间允许的最大时间间隔 (≤ 此值则合并)
+  min_segment_sec: 0.0         # 合并后短于此长度的段会被吸收到相邻段; 0 表示不丢
+
+# ---- Top-K 输出 ----
+# 单片段推理 (`pp infer-clip`) 的 topk 也复用此值; 长视频的 segments 仅记录 top1.
+topk: 5
+
+# ---- 可视化 (MP4 输出) ----
+visualization:
+  enabled: true                # 由 `--no-viz` CLI flag 在运行时覆盖为 false
+  font_scale: 0.7              # OpenCV putText 字体大小
+  text_color: [255, 255, 255]  # BGR; 白色
+  bg_color:   [0, 0, 0]        # BGR; 黑色背景以提升对比度
+  bg_alpha:   0.6              # 背景透明度 [0,1]
+  position:   top_left         # top_left | top_right | bottom_left | bottom_right
+  show_confidence: true        # 是否在文本中附加 (0.83) 这样的置信度
+  unknown_label_text: "unknown" # 'unknown' 段在 MP4 上显示的文本
+
+# ---- 健壮性 (FR-016 / SC-006) ----
+robustness:
+  # 单个滑窗推理失败时:
+  #   true  -> 记录 warning 后继续 (默认; 满足"≥90% 异常被跳过不崩溃")
+  #   false -> 立即抛错退出 (调试用)
+  skip_failed_windows: true
+  # 失败窗口比例阈值; 超过则整体退出码 4 (运行时失败)
+  max_fail_ratio: 0.5
+
+# ---- 运行时性能 (调优用; 默认值已对齐 SC-003 视频时长 × 2 目标) ----
+performance:
+  batch_windows: 8             # 一次性把多个窗口送入模型, 提升 GPU 利用率
+  io_num_workers: 2            # 视频解码并行度

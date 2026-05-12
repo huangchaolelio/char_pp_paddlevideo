@@ -1,0 +1,9 @@
+{
+  "ai": "codebuddy",
+  "branch_numbering": "sequential",
+  "here": true,
+  "integration": "codebuddy",
+  "preset": null,
+  "script": "sh",
+  "speckit_version": "0.5.0"
+}

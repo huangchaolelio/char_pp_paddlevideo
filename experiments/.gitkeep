@@ -1,0 +1,4 @@
+# 实验输出目录 (章程 II).
+# 每次 `pp train` / `pp eval` 调用产生 <YYYYMMDD-HHMMSS>-<sha7>-<slug>/ 子目录,
+# 内含 manifest.json / config.yaml / log/ / checkpoints/ / metrics.json.
+# 此目录被 .gitignore 排除, 不入库.

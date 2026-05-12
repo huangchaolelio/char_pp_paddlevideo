@@ -1,0 +1,99 @@
+# ============================================================
+# configs/models/pp_tsm_pingpong.yaml
+# ------------------------------------------------------------
+# 章程对齐:
+#   II.  可复现实验: seed 字段必填
+#   III. 配置驱动: 所有超参、路径、类别数都来自配置, 源码零硬编码
+#   VI.  上游最小侵入: 本配置是"业务视角", 由 pingpong_av.models.pp_tsm
+#        (T042) 在运行时转换为 PaddleVideo 上游原生配置
+#
+# research.md R4 约定的默认 PP-TSM 基线:
+#   ResNet50 + 8 frames uniform sampling + Kinetics-400 pretrained +
+#   Momentum(0.9)+WD 1e-4 + LR 1e-3 cosine + 5-epoch warmup + 50 epoch
+# ============================================================
+
+# ---- 数据集 (类别表必须由配置驱动, 章程 III) ----
+# 设计折中:
+#   理想做法是用 YAML 锚点 / 自定义 !include 仅引入 dataset.yaml 的某个键 (如 #classes),
+#   但本项目 loader (utils/config.py) 仅支持整文件 include, 不支持 JSON Pointer/锚点.
+#   因此我们采用两层方案:
+#     (a) data-prepare 输出 data/splits/<split>.meta.jsonl, 训练时类别可由首条样本反推;
+#     (b) 训练 / 评估前由 pingpong_av.models.pp_tsm.load_pp_tsm_config (T042) 显式合并:
+#         读取 model 配置 + 读取 dataset_config 字段所指向的 dataset 配置, 把后者的
+#         classes 字段注入此处.
+#   为通过 utils/config.load_config 的必填校验, 本文件**冗余**地内联一份与 dataset.yaml
+#   相同的类别表; T042 在合并时若发现两边不一致会抛错, 防止漂移.
+classes:
+  - { id: 0, name: serve,            display_name: "发球" }
+  - { id: 1, name: forehand_attack,  display_name: "正手攻" }
+  - { id: 2, name: backhand_attack,  display_name: "反手攻" }
+  - { id: 3, name: forehand_push,    display_name: "正手推挡" }
+  - { id: 4, name: backhand_push,    display_name: "反手推挡" }
+  - { id: 5, name: forehand_chop,    display_name: "正手削球" }
+  - { id: 6, name: backhand_chop,    display_name: "反手削球" }
+  - { id: 7, name: smash,            display_name: "扣杀" }
+
+# ---- 数据集版本同步 (章程 IV) ----
+split_version: v0.1            # 必须与 pingpong_public.yaml 中的 split_version 一致
+dataset_config: configs/datasets/pingpong_public.yaml  # 仅作引用记录
+
+# ---- 模型 ----
+model:
+  name: pp_tsm                 # 章程 III 必填字段
+  backbone:
+    name: ResNet
+    depth: 50
+    pretrained: ""             # 由 T044 在运行时填充为 Kinetics-400 权重路径
+  head:
+    name: ppTSMHead
+    num_segments: 8
+    dropout_ratio: 0.5
+  # num_classes 字段不在此硬编码; 由 pingpong_av.models.pp_tsm.load_pp_tsm_config (T042)
+  # 自动从 classes 字段长度注入, 避免两处维护.
+
+# ---- 数据管线 (train / valid / test 三套采样与增强) ----
+pipeline:
+  # 每段视频采样 8 帧 (R4: 8 frames uniform)
+  num_segments: 8
+  image_size: 224
+  short_side: 256
+  # mean / std: ImageNet 标准值, 与上游 PP-TSM 默认一致
+  mean: [0.485, 0.456, 0.406]
+  std:  [0.229, 0.224, 0.225]
+  # 训练时启用的增强
+  train_augmentations:
+    - RandomResizedCrop
+    - HorizontalFlip
+    - ColorJitter
+
+# ---- 训练循环 ----
+train:
+  epochs: 50
+  batch_size: 16
+  num_workers: 4
+  validate_every_n_epoch: 1
+  save_every_n_epoch: 5
+  # 优化器 / 学习率
+  optimizer:
+    name: Momentum
+    momentum: 0.9
+    weight_decay: 1.0e-4
+  lr:
+    scheduler: CosineAnnealing
+    base_lr: 1.0e-3
+    warmup_epochs: 5
+    warmup_start_lr: 1.0e-6
+  # 混合精度
+  amp: false
+
+# ---- 测试 / 评估 ----
+eval:
+  test_batch_size: 8
+  topk: [1, 5]                 # 章程 V: Top-1 与 Top-5 必选
+
+# ---- 随机种子 (FR-018, 章程 II) ----
+seed: 2026
+
+# ---- 日志 ----
+logging:
+  log_interval: 20             # 每 N 个 step 打印一次训练日志

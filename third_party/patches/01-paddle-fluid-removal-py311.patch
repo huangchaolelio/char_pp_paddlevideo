@@ -1,0 +1,179 @@
+# Patch:        paddle.fluid → paddle.base / paddle.nn.functional (Paddle 2.6 / Python 3.11 兼容)
+# Reason:       Paddle 2.6 (本项目锁定的 paddlepaddle-gpu==2.6.2 wheel) 已**移除** paddle.fluid 子包.
+#               上游 PaddleVideo release/2.2.0 在多个 backbone / head / utils 文件中 import 旧位置, 触发
+#               `ModuleNotFoundError: No module named 'paddle.fluid'` 与
+#               `AttributeError: module 'paddle' has no attribute 'fluid'`.
+#
+#               迁移映射:
+#                 paddle.fluid.framework.Variable    → paddle.base.framework.Variable
+#                 paddle.fluid.framework.in_dygraph_mode → paddle.base.framework.in_dygraph_mode
+#                 paddle.fluid.core                  → paddle.base.core
+#                 paddle.fluid.layer_helper.LayerHelper → paddle.base.layer_helper.LayerHelper
+#                 paddle.fluid.dygraph (layers)      → 本上游未实际使用此 import; 删除
+#                 paddle.fluid.dygraph.to_variable   → paddle.base.dygraph.to_variable
+#                 paddle.fluid.data_feeder.*         → paddle.base.data_feeder.*
+#                 paddle.fluid.layers.pad            → paddle.nn.functional.pad (注意 paddings 参数顺序)
+#                 paddle.fluid.layers.temporal_shift → paddle.nn.functional.temporal_shift
+#                 paddle.fluid.core.is_compiled_with_npu() → False  (paddle 2.6 移除了 NPU 探测; 本项目不上 NPU)
+#                 paddle.fluid.core.VarBase          → paddle.Tensor  (eager-mode 统一; VarBase 已移除)
+#
+# 验证:
+#   `paddlevideo.modeling.builder.build_model` 能成功构建 PP-TSM (Recognizer2D, 24.4M 参数);
+#   随机张量 [1, 8, 3, 224, 224] 经 forward 得到形状 [1, 400] 的有限输出.
+#
+# Upstream PR:  none (release/2.2.0 已是 frozen 分支)
+# Tested on:    da9a8ce8f0beba020727c7e7b6c50308d32df76f  (release/2.2.0 tip) + paddlepaddle-gpu==2.6.2
+# Removable when: 升级到含修复的更高 PaddleVideo release; 或 fork 上游做合并.
+diff --git a/paddlevideo/loader/dali_loader.py b/paddlevideo/loader/dali_loader.py
+index 73fe64fc..b9f998f7 100644
+--- a/paddlevideo/loader/dali_loader.py
++++ b/paddlevideo/loader/dali_loader.py
+@@ -17,7 +17,8 @@ import math
+ 
+ from paddle.distributed import ParallelEnv
+ import paddle.distributed as dist
+-from paddle.fluid.dygraph import to_variable
++# 3.11 兼容补丁: paddle.fluid → paddle.base
++from paddle.base.dygraph import to_variable
+ from paddlevideo.utils import get_logger
+ logger = get_logger("paddlevideo")
+ 
+diff --git a/paddlevideo/modeling/backbones/resnet_tsm.py b/paddlevideo/modeling/backbones/resnet_tsm.py
+index 9fa5093e..b22ff578 100644
+--- a/paddlevideo/modeling/backbones/resnet_tsm.py
++++ b/paddlevideo/modeling/backbones/resnet_tsm.py
+@@ -124,14 +124,14 @@ class BottleneckBlock(nn.Layer):
+         self.num_seg = num_seg
+ 
+     def forward(self, inputs):
+-        if paddle.fluid.core.is_compiled_with_npu():
++        if False:  # was paddle.fluid.core.is_compiled_with_npu(); paddle 2.6 removed fluid + NPU API
+             x = inputs
+             seg_num = self.num_seg
+             shift_ratio = 1.0 / self.num_seg
+ 
+             shape = x.shape #[N*T, C, H, W]
+             reshape_x = x.reshape((-1, seg_num, shape[1], shape[2], shape[3])) #[N, T, C, H, W]
+-            pad_x = paddle.fluid.layers.pad(reshape_x, [0,0,1,1,0,0,0,0,0,0,]) #[N, T+2, C, H, W]
++            pad_x = paddle.nn.functional.pad(reshape_x, [0,0,0,0,0,0,1,1,0,0])  # was paddle.fluid.layers.pad
+             c1 = int(shape[1] * shift_ratio)
+             c2 = int(shape[1] * 2 * shift_ratio)
+             slice1 = pad_x[:, :seg_num, :c1, :, :]
+diff --git a/paddlevideo/modeling/backbones/resnet_tsm_MRI.py b/paddlevideo/modeling/backbones/resnet_tsm_MRI.py
+index ae4fdc70..a6bb705a 100644
+--- a/paddlevideo/modeling/backbones/resnet_tsm_MRI.py
++++ b/paddlevideo/modeling/backbones/resnet_tsm_MRI.py
+@@ -137,7 +137,7 @@ class BottleneckBlock(nn.Layer):
+         self.num_seg = num_seg
+ 
+     def forward(self, inputs):
+-        shifts = paddle.fluid.layers.temporal_shift(inputs, self.num_seg,
++        shifts = paddle.nn.functional.temporal_shift(inputs, self.num_seg,  # was paddle.fluid.layers.temporal_shift
+                                                     1.0 / self.num_seg)
+         y = self.conv0(shifts)
+         conv1 = self.conv1(y)
+diff --git a/paddlevideo/modeling/backbones/resnet_tweaks_tsm.py b/paddlevideo/modeling/backbones/resnet_tweaks_tsm.py
+index f2ed947c..90a85672 100644
+--- a/paddlevideo/modeling/backbones/resnet_tweaks_tsm.py
++++ b/paddlevideo/modeling/backbones/resnet_tweaks_tsm.py
+@@ -137,14 +137,14 @@ class BottleneckBlock(nn.Layer):
+         self.num_seg = num_seg
+ 
+     def forward(self, inputs):
+-        if paddle.fluid.core.is_compiled_with_npu():
++        if False:  # was paddle.fluid.core.is_compiled_with_npu(); paddle 2.6 removed fluid + NPU API
+             x = inputs
+             seg_num = self.num_seg
+             shift_ratio = 1.0 / self.num_seg
+ 
+             shape = x.shape #[N*T, C, H, W]
+             reshape_x = x.reshape((-1, seg_num, shape[1], shape[2], shape[3])) #[N, T, C, H, W]
+-            pad_x = paddle.fluid.layers.pad(reshape_x, [0,0,1,1,0,0,0,0,0,0,]) #[N, T+2, C, H, W]
++            pad_x = paddle.nn.functional.pad(reshape_x, [0,0,0,0,0,0,1,1,0,0])  # was paddle.fluid.layers.pad
+             c1 = int(shape[1] * shift_ratio)
+             c2 = int(shape[1] * 2 * shift_ratio)
+             slice1 = pad_x[:, :seg_num, :c1, :, :]
+@@ -153,7 +153,7 @@ class BottleneckBlock(nn.Layer):
+             concat_x = paddle.concat([slice1, slice2, slice3], axis=2) #[N, T, C, H, W]
+             shifts = concat_x.reshape(shape)
+         else:
+-            shifts = paddle.fluid.layers.temporal_shift(inputs, self.num_seg,
++            shifts = paddle.nn.functional.temporal_shift(inputs, self.num_seg,  # was paddle.fluid.layers.temporal_shift
+                                                         1.0 / self.num_seg)
+         
+         y = self.conv0(shifts)
+diff --git a/paddlevideo/modeling/heads/base.py b/paddlevideo/modeling/heads/base.py
+index 887fceef..ffc42885 100644
+--- a/paddlevideo/modeling/heads/base.py
++++ b/paddlevideo/modeling/heads/base.py
+@@ -135,7 +135,7 @@ class BaseHead(nn.Layer):
+         Returns:
+             paddle.Tensor: [1,]
+         """
+-        if paddle.fluid.core.is_compiled_with_npu():
++        if False:  # was paddle.fluid.core.is_compiled_with_npu(); paddle 2.6 removed fluid + NPU API
+             """
+             Designed for the lack of temporary operators of NPU,
+             main idea is to split smooth loss into uniform distribution loss
+diff --git a/paddlevideo/modeling/heads/ops.py b/paddlevideo/modeling/heads/ops.py
+index 0c357fa7..50fcad16 100644
+--- a/paddlevideo/modeling/heads/ops.py
++++ b/paddlevideo/modeling/heads/ops.py
+@@ -18,11 +18,13 @@ import paddle.nn as nn
+ from paddle import ParamAttr
+ from paddle.regularizer import L2Decay
+ 
+-from paddle.fluid.framework import Variable, in_dygraph_mode
+-from paddle.fluid import core
+-from paddle.fluid.layer_helper import LayerHelper
+-from paddle.fluid.dygraph import layers
+-from paddle.fluid.data_feeder import check_variable_and_dtype, check_type, check_dtype, convert_dtype
++# 3.11 兼容补丁 (本项目 third_party/patches/01-paddle-fluid-removal.patch):
++# Paddle 2.6 移除了 paddle.fluid; 等价符号在 paddle.base.* 中.
++# `layers` 在本文件未被使用, 故删除该 import.
++from paddle.base.framework import Variable, in_dygraph_mode
++from paddle.base import core
++from paddle.base.layer_helper import LayerHelper
++from paddle.base.data_feeder import check_variable_and_dtype, check_type, check_dtype, convert_dtype
+ import math
+ import six
+ import numpy as np
+diff --git a/paddlevideo/modeling/heads/single_straight3d.py b/paddlevideo/modeling/heads/single_straight3d.py
+index cf8569dd..c02b4f43 100644
+--- a/paddlevideo/modeling/heads/single_straight3d.py
++++ b/paddlevideo/modeling/heads/single_straight3d.py
+@@ -64,7 +64,7 @@ class SingleRoIExtractor3D(nn.Layer):
+         feat = paddle.concat(feat, axis=1)  # merge slow and fast
+         roi_feats = []
+         for t in range(feat.shape[2]):
+-            if type(t) == paddle.fluid.framework.Variable:
++            if type(t) == paddle.base.framework.Variable:  # was paddle.fluid.framework.Variable
+                 index = paddle.to_tensor(t)
+             else:
+                 data_index = np.array([t]).astype('int32')
+diff --git a/paddlevideo/utils/save_load.py b/paddlevideo/utils/save_load.py
+index 71465cbb..66efba1d 100644
+--- a/paddlevideo/utils/save_load.py
++++ b/paddlevideo/utils/save_load.py
+@@ -265,9 +265,11 @@ def save(state_dicts, file_name):
+         model_dict = {}
+ 
+         for k, v in state_dict.items():
++            # Was: (paddle.fluid.framework.Variable, paddle.fluid.core.VarBase)
++            # Paddle 2.6: VarBase removed, all tensors are paddle.Tensor (eager).
+             if isinstance(
+                     v,
+-                (paddle.fluid.framework.Variable, paddle.fluid.core.VarBase)):
++                (paddle.base.framework.Variable, paddle.Tensor)):
+                 model_dict[k] = v.numpy()
+             else:
+                 model_dict[k] = v
+@@ -278,7 +280,7 @@ def save(state_dicts, file_name):
+     for k, v in state_dicts.items():
+         if isinstance(
+                 v,
+-            (paddle.fluid.framework.Variable, paddle.fluid.core.VarBase)):
++            (paddle.base.framework.Variable, paddle.Tensor)):  # was paddle.fluid.* + VarBase
+             final_dict = convert(state_dicts)
+             break
+         elif isinstance(v, dict):
