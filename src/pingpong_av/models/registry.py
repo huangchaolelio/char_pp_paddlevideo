@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Mapping
 
-from pingpong_av.models import pp_tsm
+from pingpong_av.models import bmn, pp_tsm
 
 __all__ = ["get_model_loader", "list_supported_models", "ModelLoader"]
 
@@ -25,6 +25,7 @@ ModelLoader = Callable[..., tuple[Any, dict[str, Any]]]
 
 _REGISTRY: dict[str, ModelLoader] = {
     "pp_tsm": pp_tsm.load_pp_tsm_config,
+    "bmn":    bmn.load_bmn_config,
 }
 
 

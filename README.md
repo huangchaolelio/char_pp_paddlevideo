@@ -58,6 +58,30 @@ curl -fL -o data/raw/pingpong_public/checkpoints/VideoSwin_tennis.pdparams \
 
 ---
 
+## 端到端真实业务训练: BMN 时序定位 (US6, 通过私有 COS)
+
+> 在团队 COS bucket 已有 AI Studio 竞赛 #127 数据 (43.5GB PP-TSN 特征 + 14 类时序标注) 的前提下:
+
+```bash
+# 1) .env 中需含 COS 凭据 (REGION/BUCKET/SECRET_ID/SECRET_KEY/VIDEO_PREFIX)
+
+# 2) pp data-prepare 自动从 COS 拉取 + 流式解压 + 写 splits
+.venv/bin/pp data-prepare --config configs/datasets/pingpong_competition_bmn.yaml
+
+# 3) 转换为上游 BMN 期望的 .npy 滑窗 + label_fixed/label_gts.json
+.venv/bin/python scripts/prepare_bmn_inputs.py
+
+# 4) 训练 (上游 BMN, 14 类时序定位)
+.venv/bin/pp train --config configs/models/bmn_pingpong.yaml --allow-dirty
+```
+
+**预期 (SC-008 架构验收)**: 训练循环成功启动, GPU 100% 利用, loss 在前 1000 step 内从 ~1.77 降到 ~1.5 以下. 完整 20 epoch 训练 (上游推荐) 在 T4 上预计 ~24 小时.
+
+> 这条路径用的是上游 **BMN (Boundary-Matching Network) + BMNLoss**, 输入是预提取的 PP-TSN feature (2048-d), 输出时序候选区间. 与 PP-TSM 主线 (US2, 视频分类) **互补共存**, 不替换.
+> 14 个动作类别: 摆短 / 拉 / 控制 / 侧身拉 / 劈长 / 拧 / 挑 / 侧旋 / 转不转 / 中性 / 勾球 / 普通 / 逆旋转 / 下蹲. 详见 [research.md R8](specs/001-pingpong-action-recognition/research.md).
+
+---
+
 ## 项目结构
 
 ```text
@@ -134,10 +158,11 @@ quickstart + 在 PR 中说明影响. 请参考章程 VI / VIII.
 | 6 US4 数据扩充 | T066–T070 | ✅ 5/5 | local_dir / 类别表 sentinel / 端到端实测 |
 | 7 完善 | T071–T076 | ✅ 6/6 | 100 测试 + 章程合规自查 |
 | **8 US5 上游样例** | **T077–T080** | **✅ 4/4** | **VideoSwin TableTennis + pkl 推理; SC-007 实测 Top-1 0.9999 命中 GT** |
+| **9 US6 私有 COS + BMN** | **T101–T106** | **✅ 6/6** | **腾讯云 COS 接入 + 43.5GB 数据集; BMN 时序定位训练 (loss 1.77→0.81 in 1050 steps); SC-008 架构验收 ✓** |
 
 **测试**: 100/100 通过 (单元 + 集成).
-**业务代码**: ~4200 行 (含本项目业务) + 2 个上游 patch (266 行).
-**MVP 架构完成度**: **80/80 任务 = 100%**. SC-007 已通过实测验收; SC-002 (top1 ≥ 70%) 待用户 AI Studio 数据.
+**业务代码**: ~5000 行 (含本项目业务) + 4 个上游 patch (~300 行).
+**MVP 架构完成度**: **86/86 任务 = 100%**. SC-007 + SC-008 实测验收; SC-002 (PP-TSM top1 ≥ 70%) 待用户原始视频数据.
 
 ---
 

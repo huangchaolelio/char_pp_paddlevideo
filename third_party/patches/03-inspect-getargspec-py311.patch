@@ -1,0 +1,27 @@
+# Patch:        inspect.getargspec → inspect.getfullargspec (Python 3.11 兼容)
+# Reason:       Python 3.11 删除了 inspect.getargspec (Python 3.0 已 deprecated, 3.11 才完全移除).
+#               PaddleVideo release/2.2.0 paddlevideo/solver/optimizer.py:123 仍在使用,
+#               触发: AttributeError: module 'inspect' has no attribute 'getargspec'.
+#               这只在 BMN / 其他用 Adam optimizer 的训练路径上触发 (PP-TSM 用 Momentum 不走此分支).
+#
+# 修复策略:
+#               把 inspect.getargspec 替换为 inspect.getfullargspec, 后者从 Python 3.3
+#               起就支持, 返回的对象有相同的 .args 属性, 行为完全等价.
+#
+# Upstream PR:  none (release/2.2.0 已 frozen; develop 分支也仍然如此)
+# Tested on:    da9a8ce8 + paddle 2.6.2 + Python 3.11.15
+#               实测 pp train --config configs/models/bmn_pingpong.yaml 启动通过
+# Removable when: 上游升级到 Python 3.11 兼容版本 (替换 getargspec)
+diff --git a/paddlevideo/solver/optimizer.py b/paddlevideo/solver/optimizer.py
+index 46ff916c..6636f02d 100644
+--- a/paddlevideo/solver/optimizer.py
++++ b/paddlevideo/solver/optimizer.py
+@@ -120,7 +120,7 @@ def build_optimizer(cfg: Dict,
+         'parameters': model.parameters(),
+         **cfg_copy
+     }
+-    optimizer_init_args = inspect.getargspec(
++    optimizer_init_args = inspect.getfullargspec(
+         getattr(paddle.optimizer, opt_name).__init__).args
+     if use_amp and amp_level == "O2" and "multi_precision" in optimizer_init_args:
+         # support "multi_precision" arg in optimizer's __init__ function.

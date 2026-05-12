@@ -1,0 +1,27 @@
+# Patch:        record.AverageMeter.update Tensor[0] → .item() (paddle 2.6+ 兼容)
+# Reason:       paddle 2.6+ 对 0-d (标量) 张量, Tensor.numpy() 返回 0-d ndarray;
+#               旧代码用 val.numpy()[0] 会抛 IndexError: too many indices for array.
+#               新版 BMN 训练循环每个 step 都会触发此点 (loss / lr 更新).
+#
+# 修复策略:
+#               检查 ndim 后用 .item() 取标量 (兼容 0-d 与 1-d 长度 1 两种情况).
+#
+# Upstream PR:  none (release/2.2.0 已 frozen)
+# Tested on:    da9a8ce8 + paddle 2.6.2 + Python 3.11.15 + BMN 训练
+# Removable when: 上游 record.py 修复 (任意一种安全索引方式).
+diff --git a/paddlevideo/utils/record.py b/paddlevideo/utils/record.py
+index 13e35e81..a9a711d7 100644
+--- a/paddlevideo/utils/record.py
++++ b/paddlevideo/utils/record.py
+@@ -86,7 +86,10 @@ class AverageMeter(object):
+     def update(self, val, n=1):
+         """ update """
+         if isinstance(val, paddle.Tensor):
+-            val = val.numpy()[0]
++            # paddle 2.6+ Tensor.numpy() 对 0-d 张量返回 0-d ndarray, 不能用 [0] 索引;
++            # 用 .item() 取标量更安全 (与 1-d 长度 1 也兼容).
++            arr = val.numpy()
++            val = arr.item() if arr.ndim == 0 else arr[0]
+         self.val = val
+         self.sum += val * n
+         self.count += n

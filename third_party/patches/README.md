@@ -111,3 +111,5 @@ NN-<short-symptom>.patch
 |------|------|---------|---------|
 | [`01-paddle-fluid-removal-py311.patch`](01-paddle-fluid-removal-py311.patch) | paddle.fluid → paddle.base / paddle.nn.functional | Paddle 2.6 移除 paddle.fluid 子包, 上游 release/2.2.0 多处 import 旧位置 | 升级到含修复的更高 PaddleVideo release; 或 fork 上游做合并 |
 | [`02-decord-lazy-import-py311.patch`](02-decord-lazy-import-py311.patch) | decord 延迟 import | decord 0.4.x 无 Python 3.11 wheel; 上游 3 个 pipeline 文件在模块顶层 eager import | 上游切换为 lazy import 或升级到有 3.11 wheel 的 decord 版本 |
+| [`03-inspect-getargspec-py311.patch`](03-inspect-getargspec-py311.patch) | inspect.getargspec → getfullargspec | Python 3.11 删除 inspect.getargspec; 上游 BMN 训练经过 build_optimizer (Adam) 时触发 | 上游升级到 3.11 兼容版本 |
+| [`04-record-tensor-scalar-py311.patch`](04-record-tensor-scalar-py311.patch) | record.AverageMeter Tensor[0] → .item() | paddle 2.6+ 0-d Tensor.numpy() 返回 0-d ndarray, [0] 索引抛 IndexError; 每个训练 step 触发 | 上游升级到任意安全索引方式 |

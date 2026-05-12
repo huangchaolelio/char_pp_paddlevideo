@@ -273,6 +273,67 @@ US2 (PP-TSM 业务训练) 受阻于 R2 的"半公开数据"约束 (AI Studio 注
 
 ---
 
+## R8 — 私有 COS 接入 + BMN 时序定位主线 (US6, 2026-05-12 新增)
+
+**触发原因**:
+US2 PP-TSM 业务训练实际所需的 AI Studio 竞赛 #127 数据**已被团队上传到**腾讯云 COS bucket. 实地探测发现:
+- 数据形态是**预提取的 PP-TSN 特征** (`Features_competition_train.tar.gz`, 43.5GB), 不是原始视频
+- 标注是**时序动作 GT** (`label_cls14_train.json`, 19054 个 actions, 14 类带秒级 start/end)
+- 此组合**不**适合 PP-TSM (片段分类), 但**完美匹配 BMN** (Boundary-Matching Network) 时序定位任务
+
+**Decision**: 新增独立路径 `source.type=cos` + BMN 模型整合, 与 US2 的 PP-TSM 主线**互补共存**:
+- US2 (PP-TSM, 8 类片段分类): 等用户提供原始视频或 AI Studio 完整数据集
+- US6 (BMN, 14 类时序定位): 走 COS → tar.gz → 滑窗 .npy → BMN 训练 → 时序候选区间
+
+**关键技术决策**:
+1. **凭据从 .env 读, 不入 yaml**: 避免 secret 泄露 (与 token 一样).
+2. **流式解压 (`r|gz`)**: `tarfile.open(..., 'r:gz')` + 后续 `getmembers()` 对 43GB 会读两遍 (~1 小时). 改为 `r|gz` (forward-only) + 逐成员 `tf.extract()`, 5 分钟内完成.
+3. **每个 .pkl 视为独立"视频"** (`_try_read_bmn_features`): 不在 splitter 层切片; label_id 用 GT 中众数填充, 仅供 splitter 分层校验, 实际训练时 BMN 直接从 JSON 按 url 索引完整 actions list.
+4. **Preprocessing 脚本独立** (`scripts/prepare_bmn_inputs.py`): 上游 `get_instance_for_bmn.py` 是 `if __name__ == '__main__'` 风格, 不能 `import`. 复刻 4 个核心函数到本仓库, 但**不**复制其源码 (章程 VI), 用最小必要等价实现.
+5. **过滤无 .npy 的 label 条目**: BMN 滑窗会因边界条件丢弃 ~1% 切片 (上游也跳过); label_fixed.json 必须同步过滤, 否则 dataloader 抛 FileNotFoundError.
+6. **额外 2 个 patches**:
+   - `03-inspect-getargspec-py311.patch`: Python 3.11 删除 `inspect.getargspec`, 替换为 `getfullargspec`
+   - `04-record-tensor-scalar-py311.patch`: paddle 2.6+ 0-d 张量 `.numpy()[0]` 抛 IndexError, 用 `.item()` 替代
+
+**实测验收 (SC-008)**:
+```
+COS bucket: charhuang-pp-1253960454 (ap-guangzhou)
+  pp_video/Features_competition_train.tar.gz  43.5 GB
+  pp_video/label_cls14_train.json              1.6 MB
+
+数据准备:
+  pp data-prepare --config configs/datasets/pingpong_competition_bmn.yaml
+  → 729 videos, 14 classes, train=621/val=72/test=36 (无泄漏)
+
+BMN 输入转换:
+  python scripts/prepare_bmn_inputs.py
+  → 18074 .npy slices (8s × 25fps × 2048-d), label_fixed.json 9.0MB, label_gts.json 10.4MB
+
+训练启动:
+  pp train --config configs/models/bmn_pingpong.yaml --allow-dirty
+  → upstream: train subset video numbers: 16107, validation subset: 1967
+  → step 40 loss=1.77, step 1050 loss=0.81 (loss 持续下降, 架构验证通过)
+  → GPU: Tesla T4, 100% util, 7.1GB 显存, 1.07s/step
+  → manifest 含完整章程 II 四元组 + cuda_version + gpu_model
+```
+
+**Alternatives considered**:
+- **跳过 COS, 等用户在本机复现**: 拒 — 用户机器没有这份特征数据.
+- **直接用 PP-TSM 在这份数据上**: 拒 — PP-TSM 期望视频帧, 不是预提取 2048-d 特征向量.
+- **用一个视频几个动作切出片段, 再训 PP-TSM**: 拒 — 时间长, 标签对应规则需要重新设计, 与上游 BMN 路径割裂.
+- **复制上游 `get_instance_for_bmn.py` 入库**: 拒 — 章程 VI; 改为最小必要等价实现.
+
+**输出给阶段 1 / tasks**:
+- `src/pingpong_av/data/public_datasets.py` 新增 `_ensure_cos_setup` + `_try_read_bmn_features` (~150 行)
+- `configs/datasets/pingpong_competition_bmn.yaml` (描述 14 类 + COS 字段)
+- `configs/models/bmn_pingpong.yaml` (BMN 业务包装)
+- `src/pingpong_av/models/bmn.py` (load_bmn_config + 注册到 registry, ~150 行)
+- `scripts/prepare_bmn_inputs.py` (BMN preprocessing, ~250 行)
+- `third_party/patches/03,04` (兼容性 patches)
+- 新增 `pip install cos-python-sdk-v5` 依赖
+
+---
+
 ## 已解决的所有 NEEDS CLARIFICATION
 
 | 来源 | 问题 | 解决方式 |

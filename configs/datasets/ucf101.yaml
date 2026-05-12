@@ -1,0 +1,133 @@
+# ============================================================
+# configs/datasets/ucf101.yaml
+# ------------------------------------------------------------
+# UCF101 数据集 (公开, 6.9GB rar). 含 TableTennisShot (id=89) 等 101 类动作.
+# 本项目用它做 'PP-TSM 训练评估链路在真公开数据上端到端验证' (US2 架构验收).
+# 与乒乓球细分动作识别 (AI Studio #127, 详见 pingpong_public.yaml) 是不同主题.
+# 真公开下载源: https://www.crcv.ucf.edu/data/UCF101/
+# ============================================================
+
+name: ucf101
+split_version: official-split-1   # UCF101 官方提供 split 1/2/3, 我们用 split1
+
+source:
+  type: url_list
+  insecure: true   # CRCV 服务器 SSL 证书在某些 client 上不可信; 上游 download_videos.sh 也用 --no-check-certificate
+  urls:
+    - "https://www.crcv.ucf.edu/data/UCF101/UCF101.rar"
+
+split_strategy: official  # public_datasets 优先识别 trainlist01.txt/testlist01.txt
+ratios: {train: 0.7, val: 0.15, test: 0.15}  # fallback only
+seed: 2026
+
+# 类别表 (从 ucfTrainTestlist/classInd.txt 派生, 0-indexed):
+classes:
+  - {id:   0, name: ApplyEyeMakeup, display_name: "ApplyEyeMakeup"}
+  - {id:   1, name: ApplyLipstick, display_name: "ApplyLipstick"}
+  - {id:   2, name: Archery, display_name: "Archery"}
+  - {id:   3, name: BabyCrawling, display_name: "BabyCrawling"}
+  - {id:   4, name: BalanceBeam, display_name: "BalanceBeam"}
+  - {id:   5, name: BandMarching, display_name: "BandMarching"}
+  - {id:   6, name: BaseballPitch, display_name: "BaseballPitch"}
+  - {id:   7, name: Basketball, display_name: "Basketball"}
+  - {id:   8, name: BasketballDunk, display_name: "BasketballDunk"}
+  - {id:   9, name: BenchPress, display_name: "BenchPress"}
+  - {id:  10, name: Biking, display_name: "Biking"}
+  - {id:  11, name: Billiards, display_name: "Billiards"}
+  - {id:  12, name: BlowDryHair, display_name: "BlowDryHair"}
+  - {id:  13, name: BlowingCandles, display_name: "BlowingCandles"}
+  - {id:  14, name: BodyWeightSquats, display_name: "BodyWeightSquats"}
+  - {id:  15, name: Bowling, display_name: "Bowling"}
+  - {id:  16, name: BoxingPunchingBag, display_name: "BoxingPunchingBag"}
+  - {id:  17, name: BoxingSpeedBag, display_name: "BoxingSpeedBag"}
+  - {id:  18, name: BreastStroke, display_name: "BreastStroke"}
+  - {id:  19, name: BrushingTeeth, display_name: "BrushingTeeth"}
+  - {id:  20, name: CleanAndJerk, display_name: "CleanAndJerk"}
+  - {id:  21, name: CliffDiving, display_name: "CliffDiving"}
+  - {id:  22, name: CricketBowling, display_name: "CricketBowling"}
+  - {id:  23, name: CricketShot, display_name: "CricketShot"}
+  - {id:  24, name: CuttingInKitchen, display_name: "CuttingInKitchen"}
+  - {id:  25, name: Diving, display_name: "Diving"}
+  - {id:  26, name: Drumming, display_name: "Drumming"}
+  - {id:  27, name: Fencing, display_name: "Fencing"}
+  - {id:  28, name: FieldHockeyPenalty, display_name: "FieldHockeyPenalty"}
+  - {id:  29, name: FloorGymnastics, display_name: "FloorGymnastics"}
+  - {id:  30, name: FrisbeeCatch, display_name: "FrisbeeCatch"}
+  - {id:  31, name: FrontCrawl, display_name: "FrontCrawl"}
+  - {id:  32, name: GolfSwing, display_name: "GolfSwing"}
+  - {id:  33, name: Haircut, display_name: "Haircut"}
+  - {id:  34, name: Hammering, display_name: "Hammering"}
+  - {id:  35, name: HammerThrow, display_name: "HammerThrow"}
+  - {id:  36, name: HandstandPushups, display_name: "HandstandPushups"}
+  - {id:  37, name: HandstandWalking, display_name: "HandstandWalking"}
+  - {id:  38, name: HeadMassage, display_name: "HeadMassage"}
+  - {id:  39, name: HighJump, display_name: "HighJump"}
+  - {id:  40, name: HorseRace, display_name: "HorseRace"}
+  - {id:  41, name: HorseRiding, display_name: "HorseRiding"}
+  - {id:  42, name: HulaHoop, display_name: "HulaHoop"}
+  - {id:  43, name: IceDancing, display_name: "IceDancing"}
+  - {id:  44, name: JavelinThrow, display_name: "JavelinThrow"}
+  - {id:  45, name: JugglingBalls, display_name: "JugglingBalls"}
+  - {id:  46, name: JumpingJack, display_name: "JumpingJack"}
+  - {id:  47, name: JumpRope, display_name: "JumpRope"}
+  - {id:  48, name: Kayaking, display_name: "Kayaking"}
+  - {id:  49, name: Knitting, display_name: "Knitting"}
+  - {id:  50, name: LongJump, display_name: "LongJump"}
+  - {id:  51, name: Lunges, display_name: "Lunges"}
+  - {id:  52, name: MilitaryParade, display_name: "MilitaryParade"}
+  - {id:  53, name: Mixing, display_name: "Mixing"}
+  - {id:  54, name: MoppingFloor, display_name: "MoppingFloor"}
+  - {id:  55, name: Nunchucks, display_name: "Nunchucks"}
+  - {id:  56, name: ParallelBars, display_name: "ParallelBars"}
+  - {id:  57, name: PizzaTossing, display_name: "PizzaTossing"}
+  - {id:  58, name: PlayingCello, display_name: "PlayingCello"}
+  - {id:  59, name: PlayingDaf, display_name: "PlayingDaf"}
+  - {id:  60, name: PlayingDhol, display_name: "PlayingDhol"}
+  - {id:  61, name: PlayingFlute, display_name: "PlayingFlute"}
+  - {id:  62, name: PlayingGuitar, display_name: "PlayingGuitar"}
+  - {id:  63, name: PlayingPiano, display_name: "PlayingPiano"}
+  - {id:  64, name: PlayingSitar, display_name: "PlayingSitar"}
+  - {id:  65, name: PlayingTabla, display_name: "PlayingTabla"}
+  - {id:  66, name: PlayingViolin, display_name: "PlayingViolin"}
+  - {id:  67, name: PoleVault, display_name: "PoleVault"}
+  - {id:  68, name: PommelHorse, display_name: "PommelHorse"}
+  - {id:  69, name: PullUps, display_name: "PullUps"}
+  - {id:  70, name: Punch, display_name: "Punch"}
+  - {id:  71, name: PushUps, display_name: "PushUps"}
+  - {id:  72, name: Rafting, display_name: "Rafting"}
+  - {id:  73, name: RockClimbingIndoor, display_name: "RockClimbingIndoor"}
+  - {id:  74, name: RopeClimbing, display_name: "RopeClimbing"}
+  - {id:  75, name: Rowing, display_name: "Rowing"}
+  - {id:  76, name: SalsaSpin, display_name: "SalsaSpin"}
+  - {id:  77, name: ShavingBeard, display_name: "ShavingBeard"}
+  - {id:  78, name: Shotput, display_name: "Shotput"}
+  - {id:  79, name: SkateBoarding, display_name: "SkateBoarding"}
+  - {id:  80, name: Skiing, display_name: "Skiing"}
+  - {id:  81, name: Skijet, display_name: "Skijet"}
+  - {id:  82, name: SkyDiving, display_name: "SkyDiving"}
+  - {id:  83, name: SoccerJuggling, display_name: "SoccerJuggling"}
+  - {id:  84, name: SoccerPenalty, display_name: "SoccerPenalty"}
+  - {id:  85, name: StillRings, display_name: "StillRings"}
+  - {id:  86, name: SumoWrestling, display_name: "SumoWrestling"}
+  - {id:  87, name: Surfing, display_name: "Surfing"}
+  - {id:  88, name: Swing, display_name: "Swing"}
+  - {id:  89, name: TableTennisShot, display_name: "TableTennisShot"}
+  - {id:  90, name: TaiChi, display_name: "TaiChi"}
+  - {id:  91, name: TennisSwing, display_name: "TennisSwing"}
+  - {id:  92, name: ThrowDiscus, display_name: "ThrowDiscus"}
+  - {id:  93, name: TrampolineJumping, display_name: "TrampolineJumping"}
+  - {id:  94, name: Typing, display_name: "Typing"}
+  - {id:  95, name: UnevenBars, display_name: "UnevenBars"}
+  - {id:  96, name: VolleyballSpiking, display_name: "VolleyballSpiking"}
+  - {id:  97, name: WalkingWithDog, display_name: "WalkingWithDog"}
+  - {id:  98, name: WallPushups, display_name: "WallPushups"}
+  - {id:  99, name: WritingOnBoard, display_name: "WritingOnBoard"}
+  - {id: 100, name: YoYo, display_name: "YoYo"}
+
+paths:
+  raw_dir:    data/raw
+  clip_dir:   data/clips
+  splits_dir: data/splits/ucf101
+
+validation:
+  min_samples_per_class: 50   # UCF101 平均每类 ~130, 50 是合理下限

@@ -1,0 +1,90 @@
+# ============================================================
+# configs/datasets/pingpong_competition_bmn.yaml
+# ------------------------------------------------------------
+# AI Studio 竞赛 #127 乒乓球时序动作定位 (BMN) 数据集.
+#
+# 章程对齐:
+#   III. 配置驱动: 14 类完整在 yaml 中, 不在源码硬编码
+#   IV.  数据完整性: 训练集已有 GT JSON; split_version 必须每次重划分时 bump
+#
+# 数据来源 (research.md R8, 新增):
+#   通过腾讯云 COS (ap-guangzhou) 拉取, 由用户在 AI Studio 报名后上传到 COS:
+#     - pp_video/Features_competition_train.tar.gz  (43.5 GB)
+#         内含 729 段视频的 PP-TSN 抽帧特征 (每段 NxD 数组, D=2048)
+#     - pp_video/label_cls14_train.json               (1.6 MB)
+#         729 段视频的 19054 个时序动作实例 (秒级 start/end + 14 类 label)
+#
+#   凭据通过 .env 提供: COS_REGION / COS_BUCKET / COS_SECRET_ID / COS_SECRET_KEY.
+#   prefix 默认从 .env 的 COS_VIDEO_PREFIX 读取, 也可在下方 source 段显式设置.
+#
+# 任务类型: BMN (Boundary-Matching Network) 时序动作定位
+#   - **不**是动作分类 (PP-TSM 主线 US2)
+#   - **不**是片段级 Top-K 推理 (US5 VideoSwin)
+#   - 输入: 整段视频的 frame-wise feature (N, 2048)
+#   - 输出: 一组候选时序区间 [start_sec, end_sec, score, label]
+#   - 与本项目 US3 长视频时序识别在结果产物上对齐 (FR-014/015 的 JSON 时间轴), 但
+#     上游用了端到端 BMN 模型, 而非滑窗 + 后处理.
+# ============================================================
+
+name: pingpong_competition_bmn
+split_version: v0.1                # 第一次接入
+
+source:
+  type: cos
+  # bucket / region / prefix 默认从 .env 读 (COS_BUCKET / COS_REGION / COS_VIDEO_PREFIX);
+  # 如需覆盖可在此显式填写.
+  keys:
+    - "Features_competition_train.tar.gz"   # 43.5 GB, 含 729 个 .pkl
+    - "label_cls14_train.json"               # 1.6 MB, 时序 GT
+  extract: true                              # 解压 .tar.gz 到 paths.clip_dir
+  max_thread: 8
+
+# BMN 不需要 train.list / val.list (上游用的是 label JSON 中的 url 字段).
+# 但本项目的 splitter 依然需要把 729 个 .pkl 划分为 train/val/test.
+split_strategy: by_video_ratio
+ratios:
+  train: 0.85
+  val:   0.10
+  test:  0.05
+seed: 2026
+
+# ============================================================
+# 类别表 (14 类, 来自 label_cls14_train.json 实地探测)
+# ============================================================
+# 注意: BMN 训练时, label_ids 来自 label_cls14_train.json::actions[*].label_ids;
+# 这里的 classes 表用于:
+#   - 评估时 per-class 指标的 display_name 映射
+#   - 可视化时把 id 转成中文名
+classes:
+  - { id:  0, name: "baiduan",      display_name: "摆短" }
+  - { id:  1, name: "la",           display_name: "拉" }
+  - { id:  2, name: "kongzhi",      display_name: "控制" }
+  - { id:  3, name: "ceshen_la",    display_name: "侧身拉" }
+  - { id:  4, name: "pichang",      display_name: "劈长" }
+  - { id:  5, name: "ning",         display_name: "拧" }
+  - { id:  6, name: "tiao",         display_name: "挑" }
+  - { id:  7, name: "cexuan",       display_name: "侧旋" }
+  - { id:  8, name: "zhuan_buzhuan", display_name: "转不转" }
+  - { id:  9, name: "zhongxing",    display_name: "中性" }
+  - { id: 10, name: "gou_qiu",      display_name: "勾球" }
+  - { id: 11, name: "putong",       display_name: "普通" }
+  - { id: 12, name: "ni_xuanzhuan", display_name: "逆旋转" }
+  - { id: 13, name: "xia_dun",      display_name: "下蹲" }
+
+# 数据集元信息 (来自 label_cls14_train.json 与 PaddleVideo bmn_tabletennis.yaml 对齐)
+metadata:
+  fps: 25
+  feat_dim: 2048
+  feat_extractor: "PP-TSN"
+  task: "temporal_action_localization"     # 不是 classification
+  bmn_window_sec: 8                        # 上游 get_instance_for_bmn.py::bmn_window
+  n_videos_train: 729                      # label_cls14_train.json::len(gts)
+  n_actions_train: 19054                   # 总动作实例数
+
+paths:
+  raw_dir:    data/raw/pingpong_competition       # tar.gz / json 落于此
+  clip_dir:   data/clips/pingpong_competition     # tar.gz 解压后的 .pkl 在 Features_competition_train/
+  splits_dir: data/splits/pingpong_competition
+
+validation:
+  min_samples_per_class: 30

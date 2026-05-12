@@ -87,10 +87,15 @@ pp data-prepare --config configs/datasets/pingpong_public.yaml [--force]
 
 **输入**:
 - `--config` 指向的 YAML, 至少包含:
-  - `source`: 数据集来源 (URL 或本地路径)
+  - `source`: 数据集来源, **支持 4 种 type**:
+    - `url_list` (公网 HTTP/HTTPS, 含 `urls: [...]`, 可选 `insecure: true`)
+    - `local_dir` (本地目录, 含 `path: <abs>`)
+    - `manual` (用户手动准备, 含 `sentinel_relpath` + `manual_steps` 引导)
+    - `cos` (腾讯云 COS, 含 `keys: [...]` + 可选 `bucket/region/prefix/extract/max_thread`; 凭据从 `.env` 读 `COS_SECRET_ID/COS_SECRET_KEY/COS_BUCKET/COS_REGION/COS_VIDEO_PREFIX`, 不入 yaml — FR-023)
   - `classes`: ActionClass 数组 (见 data-model.md)
   - `split_strategy`: `official` (使用数据集自带划分) 或 `by_video_ratio` (按 source_video_id 分层划分, 带 ratio)
   - `split_version`: 字符串 (每次重新划分必须 bump)
+- 对于 `cos` 模式, 当数据是 PaddleVideo BMN 训练用的 `Features_competition_train/*.pkl` 时, 系统通过 `_try_read_bmn_features` 路径自动识别 (FR-025): 每个 .pkl 视为一个 source_video, label_id 从 `label_cls*.json` 中按 url 取众数填充, 用作 splitter 分层校验.
 
 **产出**:
 - `data/raw/`, `data/clips/` 下的实际数据文件 (**不入库**)

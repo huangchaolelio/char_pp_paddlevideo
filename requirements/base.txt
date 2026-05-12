@@ -36,3 +36,7 @@ tqdm~=4.66
 
 # JSON Lines 解析 (data/splits/*.meta.jsonl)
 # 标准库 json 已够用, 不引入额外依赖
+
+# 腾讯云 COS 客户端 (US6: 私有 COS 拉取大型数据集; 见 research.md R8)
+# 仅在 source.type=cos 时实际使用; .env 缺失时不被 import.
+cos-python-sdk-v5~=1.9

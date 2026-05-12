@@ -1,0 +1,60 @@
+# ============================================================
+# configs/models/bmn_pingpong.yaml
+# ------------------------------------------------------------
+# BMN (Boundary-Matching Network) 时序定位模型配置.
+# 针对 AI Studio 竞赛 #127 乒乓球数据
+# (configs/datasets/pingpong_competition_bmn.yaml).
+#
+# 章程对齐:
+#   II.  可复现实验: seed + split_version 必填
+#   III. 配置驱动: classes 表内联 (与 pp_tsm_pingpong.yaml 一致, 防漂移)
+#   VI.  上游最小侵入: 实际网络结构 / loss / optimizer 来自上游
+#        third_party/PaddleVideo/applications/TableTennis/configs/bmn_tabletennis.yaml,
+#        由 src/pingpong_av/models/bmn.py 在运行时合并并写入临时 yaml.
+# ============================================================
+
+# ---- 数据集引用 (与 pp_tsm_pingpong 相同折中) ----
+split_version: v0.1
+dataset_config: configs/datasets/pingpong_competition_bmn.yaml
+
+# ---- 类别表 (14 类, 必须与 pingpong_competition_bmn.yaml 同步; 漂移会被 splitter 检出) ----
+classes:
+  - { id:  0, name: "baiduan",      display_name: "摆短" }
+  - { id:  1, name: "la",           display_name: "拉" }
+  - { id:  2, name: "kongzhi",      display_name: "控制" }
+  - { id:  3, name: "ceshen_la",    display_name: "侧身拉" }
+  - { id:  4, name: "pichang",      display_name: "劈长" }
+  - { id:  5, name: "ning",         display_name: "拧" }
+  - { id:  6, name: "tiao",         display_name: "挑" }
+  - { id:  7, name: "cexuan",       display_name: "侧旋" }
+  - { id:  8, name: "zhuan_buzhuan", display_name: "转不转" }
+  - { id:  9, name: "zhongxing",    display_name: "中性" }
+  - { id: 10, name: "gou_qiu",      display_name: "勾球" }
+  - { id: 11, name: "putong",       display_name: "普通" }
+  - { id: 12, name: "ni_xuanzhuan", display_name: "逆旋转" }
+  - { id: 13, name: "xia_dun",      display_name: "下蹲" }
+
+# ---- 模型 ----
+model:
+  name: bmn          # 章程 III: 模型名必填
+  # bmn_inputs_dir: 默认 data/bmn_inputs/<dataset_name>/; 显式覆盖时绝对路径
+  bmn_inputs_dir: null
+
+# ---- 数据集运行时参数 ----
+dataset:
+  name: pingpong_competition         # bmn.py 用此名解析 bmn_inputs 默认目录
+  batch_size: 4
+  num_workers: 2
+
+# ---- 训练 ----
+train:
+  epochs: 1    # smoke 测试; 上游默认 20 (业务实战推荐 20+)
+  optimizer: adam
+  # 学习率与 LR schedule 完全继承上游 bmn_tabletennis.yaml::OPTIMIZER (本项目不覆盖)
+
+# ---- 章程 II 必填: seed ----
+seed: 2026
+
+# ---- 日志 ----
+logging:
+  log_interval: 10

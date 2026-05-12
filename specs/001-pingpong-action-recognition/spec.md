@@ -21,6 +21,8 @@
 - Q: 在 AI Studio 数据未就绪时, 如何让团队/股东看到"上游官方乒乓球任务在我们的 3.11 环境下真的能跑起来"? → A: **新增 US5 + FR-020/021/022 + SC-007**, 通过加载上游 BCEBOS 公开提供的 `VideoSwin_tennis.pdparams` (380MB, 已实测 200 OK) + `example_tennis.pkl` (7.4MB) 端到端推理一次, Top-1 必须等于 pkl 内 `ground_truth.动作类型`. **关键发现**: 上游官方乒乓球模型是 **VideoSwin Transformer + I3DHead**, **不是 PP-TSM** — 这与本项目 US2 的 PP-TSM 业务主线并行存在, 不替换; 两者通过不同的 `models/` 子模块隔离 (`pp_tsm.py` vs `videoswin_tennis.py`).
 - Q: pkl 中含 `正反手 / 动作类型 / 发球` 三个标签字段, 模型只有一个 head, 推理时如何选择? → A: 上游 `videoswin_tabletennis.yaml::MODEL.head.num_classes=8` + `I3DHead` 单输出, 训练目标是**动作类型 (8 类)**; 其余两个字段在 pkl 中保留只作为多任务标注的留痕, 不被本项目的 `pp infer-pkl` 用作判定依据, 但**必须**在输出 JSON 中透传, 让用户看到完整标签上下文 (FR-022).
 - Q: 上游 8 个动作类别的具体名称是什么? → A: 上游 README 与 yaml 均**未公布**, AI Studio 竞赛 #127 的 metadata 中可能有; 本项目代码用 `动作0..动作7` 占位, 用户从 AI Studio 拿到真实 metadata 后应自行替换 (与 `pingpong_public.yaml` 的 8 类占位同步).
+- Q: AI Studio 数据集的真实形态是什么? → A: 用户在 COS bucket 上传后实地探测确认: 数据集是 **PP-TSN 预提取特征** (43.5GB tar.gz, 含 729 段视频 × ~9000 帧 × 2048 维) + **时序动作标注** (`label_cls14_train.json`, 19054 个 actions, 14 类), 用于上游 **BMN (Boundary-Matching Network) 时序定位**任务, **不是**视频动作分类 (PP-TSM 的领域). 真实 14 类已通过实地解析 JSON 拿到 (摆短/拉/控制/侧身拉/劈长/拧/挑/侧旋/转不转/中性/勾球/普通/逆旋转/下蹲).
+- Q: 在 43GB+ 的私有 COS 数据集上能跑通端到端训练吗? → A: **新增 US6 + FR-023~028 + SC-008**, 通过 `source.type: cos` 模式 + `_try_read_bmn_features` 路径 + `scripts/prepare_bmn_inputs.py` + `models/bmn.py` loader, 加上 patches 03 (inspect.getargspec) + 04 (Tensor[0] → .item()) 解决上游 Python 3.11/paddle 2.6+ 兼容性. 实测训练循环成功启动: 16107 train videos / 1967 val videos, GPU 100% 利用, loss 1.77 → 0.81 在前 1050 step 内, batch_cost 1.07s/step.
 
 ## 用户场景与测试 *(必填)*
 
@@ -102,6 +104,27 @@
 
 ---
 
+### 用户故事 6 - 通过私有 COS 拉取大型半公开数据集并训练 BMN 时序定位 (优先级: P1)
+
+*(2026-05-12 新增) 作为乒乓球动作识别项目维护者, 我希望本项目能从腾讯云 COS 拉取大型 (43.5GB+) 数据集 (例如 AI Studio 竞赛 #127 已上传到团队 COS bucket 的 `Features_competition_train.tar.gz` PP-TSN 特征 + `label_cls14_train.json` 时序标注), 并在此真实数据上训练 BMN (Boundary-Matching Network) 时序定位模型, 输出与 spec.md FR-014/015 一致的时间区间产物.*
+
+**优先级原因**: US2 (PP-TSM 动作分类) 受阻于 AI Studio 数据需注册 + 6.9GB UCF101 公网下载速率瓶颈; **私有 COS 是真正解决"端到端业务训练"的唯一可行路径**. 一旦 COS 集成 + BMN 路径打通, 本项目就有了**完整的"上游真实模型 + 真实数据 + 端到端训练"链路**, 与 US2 (PP-TSM 主线) 互补 — US2 做片段级分类, US6 做长视频时序定位.
+
+**独立测试**: 给定 `.env` 中的 COS 凭据 + bucket prefix, 跑 `pp data-prepare` 应自动拉取 + 解压 + 写出 splits, 然后跑 `python scripts/prepare_bmn_inputs.py` 转换为 BMN 输入, 最后 `pp train --config configs/models/bmn_pingpong.yaml` 应启动训练循环并打印每步 loss.
+
+**验收场景**:
+
+1. **给定** `.env` 含 `COS_REGION / COS_BUCKET / COS_SECRET_ID / COS_SECRET_KEY / COS_VIDEO_PREFIX`, COS 上的 `<prefix>/Features_competition_train.tar.gz` (43GB+) + `<prefix>/label_cls14_train.json` 已就位, **当** 用户运行 `pp data-prepare --config configs/datasets/pingpong_competition_bmn.yaml`, **那么** 系统自动:
+   - 下载 .tar.gz + .json 到 `data/raw/pingpong_competition/<dataset_name>/`
+   - 流式解压 .tar.gz 到 `data/clips/...` (避免双遍读, 不阻塞)
+   - 通过新增的 BMN 特征发现路径 (`_try_read_bmn_features`) 把每个 .pkl 视为一段独立视频
+   - 写 splits + meta jsonl, 退出码 0
+2. **给定** 已 prep 好的特征 + label JSON, **当** 用户运行 `python scripts/prepare_bmn_inputs.py`, **那么** 输出 BMN 上游期望的 `feature/*.npy` (8s 滑窗切片) + `label_fixed.json` + `label_gts.json`, 并自动过滤无对应 .npy 的 label 条目.
+3. **给定** BMN 输入就绪 + `configs/models/bmn_pingpong.yaml` (含 14 类), **当** 用户运行 `pp train --config configs/models/bmn_pingpong.yaml`, **那么** 训练循环成功启动 (上游 `RecognizerTransformer` → BMN 网络 → loss 输出 → `manifest.json` 含章程 II 四元组). 至少前 1000 step loss 显式下降.
+4. **给定** patch 系统已就绪, **当** 用户在新机器上 `bash scripts/apply_upstream_patches.sh`, **那么** 4 个 patches (paddle.fluid 移除、decord lazy import、inspect.getargspec → getfullargspec、record Tensor 标量索引) 全部按字母序应用且幂等.
+
+---
+
 ### 边界情况
 
 - 当目标机器没有 GPU 或 CUDA 版本与 PaddlePaddle 不兼容时, 系统应给出明确的环境检查提示, 并提供 CPU 模式下的最小可运行回退路径(用于功能验证, 不保证训练速度)。
@@ -149,6 +172,15 @@
 - **FR-021**: 当上述命令的 checkpoint 文件缺失时, 退出码必须为 1, 且 stderr 必须包含可直接复制粘贴的 curl 下载命令 (含确切 BCEBOS URL), 不得引导用户去查文档自行查找.
 - **FR-022**: 输出 JSON 必须遵循 `pkl-prediction-v1` schema (见 data-model.md), 至少含: `input` (pkl 路径 / video_name / 帧数), `model` (checkpoint / framework / backbone / head / num_classes), `ground_truth` (pkl 中**全部**标签字段, 透传不解释), `ground_truth_action_id` (单独标注模型推理目标对应的 GT id, 避免多任务标签歧义), `prediction.topk` (排序后的 Top-K 列表), `prediction.top1_match_gt` (布尔值或 null).
 
+#### 私有 COS 数据源支持 (US6, 2026-05-12 新增)
+
+- **FR-023**: 系统必须支持以 ``source.type: cos`` 模式接入腾讯云 COS, 凭据通过 `.env` (`COS_REGION` / `COS_BUCKET` / `COS_SECRET_ID` / `COS_SECRET_KEY` / `COS_VIDEO_PREFIX`) 提供, 不在 yaml 内硬编码 secret. 用户可通过 `source.bucket` / `source.region` / `source.prefix` / `source.keys` / `source.extract` / `source.max_thread` 在 yaml 中显式覆盖与扩展.
+- **FR-024**: 系统必须能够流式 (`r|gz`) 解压 43GB+ 的 .tar.gz 大文件, **不**做"先 getmembers() 再 extractall()"的双遍扫描 (后者对此规模会耗时 1+ 小时), 必须以单遍逐成员模式工作并打印进度.
+- **FR-025**: 系统必须为 BMN 时序定位任务 (上游 `BMNLocalizer + BMN backbone + BMNLoss`) 提供独立的数据发现路径 (`_try_read_bmn_features`): 把 ``Features_competition_train/*.pkl`` 视为视频级单元, 从同级 `label_cls*.json` 中按 ``url`` 匹配, 用动作标签的众数填 ``VideoClip.label_id`` (用作 splitter 分层校验; 实际 BMN 训练时 ``label_id`` 字段被忽略, 真实标签在 JSON 中按 url 索引读取).
+- **FR-026**: 系统必须提供 ``scripts/prepare_bmn_inputs.py`` 把上游原始 GT JSON 转换为 BMN 训练所需的 ``label_fixed.json`` + ``label_gts.json`` + ``feature/*.npy`` 滑窗切片, 并自动过滤 (`miss > 0` 时) 没有对应 .npy 的 label 条目以避免 dataloader 文件不存在错误.
+- **FR-027**: 系统必须把 BMN 模型纳入 ``models/registry.py``, 并通过 ``configs/models/bmn_pingpong.yaml`` 的业务配置 + ``models/bmn.py`` loader 在运行时合并到上游 ``bmn_tabletennis.yaml`` 模板; 业务 yaml 仅允许覆盖路径与 epochs/batch_size, 网络结构由上游提供.
+- **FR-028**: 当上游 release/2.2.0 在 Python 3.11 / paddle 2.6+ 下 BMN 训练触发的兼容性问题 (`inspect.getargspec` 已删除; `Tensor.numpy()[0]` 对 0-d 张量报错) 时, 系统必须通过 ``third_party/patches/`` 提供最小侵入修复 (patches 03 + 04), 与 patches 01 + 02 一同由 ``apply_upstream_patches.sh`` 按字母序幂等应用.
+
 #### 可复现性与工程化
 
 - **FR-017**: 系统必须将所有训练/评估/推理使用的配置以文件形式纳入版本管理, 保证实验可复现。
@@ -175,6 +207,7 @@
 - **SC-005**: 数据准备脚本可在不修改源码的前提下接入新增的乒乓球类别或样本, 且新增数据后训练流程零改动可直接复用, 数据导入耗时随样本数线性增长。
 - **SC-006**: 至少 90% 的输入异常情况(损坏视频、不支持格式、过短片段)在推理过程中被捕获并跳过, 不会引发整体进程崩溃。
 - **SC-007**: 在 PaddleVideo 官方提供的 `example_tennis.pkl` 上, 使用官方 `VideoSwin_tennis.pdparams` 权重通过 `pp infer-pkl` 推理, Top-1 预测必须等于 pkl 内的 `ground_truth.动作类型` 真值, 且 Top-1 置信度 ≥ 0.90. (此项是 US5 的硬验收门槛, 与 SC-002 不同 — SC-002 需要 AI Studio 真实训练数据, SC-007 不需要.)
+- **SC-008**: US6 BMN 端到端验收: 在 COS 上的 `Features_competition_train.tar.gz` (43.5GB) + `label_cls14_train.json` 数据集上, `pp data-prepare → scripts/prepare_bmn_inputs.py → pp train --config configs/models/bmn_pingpong.yaml --allow-dirty` 必须能成功启动训练循环, 前 1000 step 内 loss 显式下降 (起点 1.7+, 第 1000 step ≤ 1.5), GPU 利用率 ≥ 95%, 不出现 dataloader / IndexError / 上游 API 兼容性错误. (Loss 收敛至业务可用值 < 0.5 的硬门槛留作 Phase 9 / 完整 20 epoch 训练后再验; 本 SC 只验**架构通**.)
 
 ## 假设
 
