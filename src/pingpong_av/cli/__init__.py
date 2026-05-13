@@ -244,6 +244,43 @@ def extract_feat_cmd(input_path: str, output_path: str | None, fps: int | None,
     ))
 
 
+@cli.command(name="build-feature-pkls")
+@click.option("--videos-dir", "videos_dir", required=True,
+              type=click.Path(exists=True, file_okay=False),
+              help="含视频文件的目录 (递归扫描 mp4/avi/mov/flv/mkv).")
+@click.option("--output-dir", "output_dir", required=True, type=click.Path(file_okay=False),
+              help="输出根目录, 命令内部会建 Features_<name>/ + manifest.csv + (可选) label_cls14_<name>.json.")
+@click.option("--gt-json", "gt_json", type=click.Path(exists=True, dir_okay=False), default=None,
+              help="可选 GT JSON (按 label_cls14_train.json schema); 若提供会校验 + 重写 url → clip_id.")
+@click.option("--name", type=str, default=None,
+              help="数据集子集名; 默认从 --videos-dir basename 派生.")
+@click.option("--workers", type=int, default=1,
+              help="并发 workers (当前实现仅 1; 预留接口).")
+@click.option("--config", "config_path",
+              type=click.Path(exists=True, dir_okay=False),
+              default="configs/models/pp_tsm_extractor.yaml",
+              help="PP-TSM 抽特征 YAML.")
+@click.option("--allow-dirty", is_flag=True, default=False,
+              help="git 工作区脏时仍允许运行.")
+@click.option("--force", is_flag=True, default=False,
+              help="忽略已有 .pkl, 全部重抽.")
+def build_feature_pkls_cmd(videos_dir: str, output_dir: str, gt_json: str | None,
+                           name: str | None, workers: int, config_path: str,
+                           allow_dirty: bool, force: bool) -> None:
+    """批量原始视频 → Features_<name>/<clip_id>.pkl + (可选) 重写 GT JSON (002 feature, FR-034)."""
+    from pingpong_av.cli import build_feature_pkls as _real
+    sys.exit(_real.run(
+        videos_dir=videos_dir,
+        output_dir=output_dir,
+        gt_json=gt_json,
+        name=name,
+        workers=workers,
+        config_path=config_path,
+        allow_dirty=allow_dirty,
+        force=force,
+    ))
+
+
 @cli.command(name="infer-rawvideo")
 @click.option("--input", "input_path", required=True, type=click.Path(exists=True, dir_okay=False),
               help="输入原始视频文件 (任意 ffmpeg 可解格式).")

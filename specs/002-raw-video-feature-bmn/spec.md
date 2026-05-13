@@ -78,7 +78,7 @@
 
 **验收场景**:
 
-1. **给定** US2 已生成的 `<out>/Features_<name>/*.pkl` + `label_cls14_<name>.json`, 加上 v0.2.x 训好的 baseline ckpt, **当** 用户跑 `scripts/prepare_bmn_inputs.py --label-json <new>.json --feature-dir <out>/Features_<name>/ --output-dir data/bmn_inputs/<custom>/` 然后 `pp train --resume <baseline> --config configs/models/bmn_pingpong.yaml --override dataset.bmn_inputs_dir=data/bmn_inputs/<custom>/ --allow-dirty`, **那么** 训练可以启动, 第一个 step loss 显著低于从随机权重开始的水平 (即 resume 生效).
+1. **给定** US2 已生成的 `<out>/Features_<name>/*.pkl` + `label_cls14_<name>.json`, 加上 v0.2.x 训好的 baseline ckpt, **当** 用户跑 `scripts/prepare_bmn_inputs.py --label-json <new>.json --feature-dir <out>/Features_<name>/ --output-dir data/bmn_inputs/<custom>/` 然后**复制** `configs/models/bmn_pingpong.yaml` 为 `bmn_<custom>.yaml` 把 `model.bmn_inputs_dir` 改为 `data/bmn_inputs/<custom>/`, 最后跑 `pp train --resume <baseline> --config configs/models/bmn_<custom>.yaml --allow-dirty`, **那么** 训练可以启动, 第一个 step loss 显著低于从随机权重开始的水平 (即 resume 生效).
 
 ---
 

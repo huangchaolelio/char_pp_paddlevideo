@@ -89,6 +89,62 @@ curl -fL -o data/raw/pingpong_public/checkpoints/VideoSwin_tennis.pdparams \
 
 ---
 
+## 用我的视频跑推理 (002 raw-video-feature-bmn, 任意 mp4 端到端)
+
+> 不需要 AI Studio 数据, 用任意 mp4 视频直接跑出 BMN 时序候选区间. 详见 [002 quickstart](specs/002-raw-video-feature-bmn/quickstart.md).
+
+```bash
+# (一次性) 1. 下载 PP-TSM 训练权重 (~148MB, BCEBOS 公开)
+mkdir -p data/raw/pretrained
+curl -fL -o data/raw/pretrained/ppTSM_k400_dense.pdparams \
+    https://videotag.bj.bcebos.com/PaddleVideo-release2.1/PPTSM/ppTSM_k400_dense.pdparams
+
+# 2. 端到端推理 (任意 mp4 → timeline.json + 可视化 mp4)
+.venv/bin/pp infer-rawvideo \
+    --input my_pingpong_video.mp4 \
+    --bmn-checkpoint experiments/<run>/BMN_epoch_00020.pdparams \
+    --output-dir outputs/my_run/
+```
+
+**预期 (SC-010 实测)**: 5 分钟 mp4 在 T4 上 ≤ 5 分钟完成 (实测 5 秒 fixture mp4 仅 13 秒, 含 PP-TSM 抽特征 + BMN 推理 + 12 进程 NMS 后处理). 输出三件套:
+- `timeline.json` (schema=`rawvideo-timeline-v1`) — 候选时间区间列表
+- `<input>_visualized.mp4` — 在原视频上叠加候选区间
+- `feature.pkl` — 中间产物 (默认保留, 便于 debug)
+
+### 用我的视频集合扩充训练数据 (US2)
+
+```bash
+# 把视频目录批量转 .pkl + 重写 GT JSON (可选)
+.venv/bin/pp build-feature-pkls \
+    --videos-dir my_videos/ \
+    --output-dir data/clips/my_extension/ \
+    --gt-json my_label.json \
+    --name my_ext
+
+# 然后走 v0.2.x 已有训练管线
+.venv/bin/python scripts/prepare_bmn_inputs.py \
+    --label-json data/clips/my_extension/label_cls14_my_ext.json \
+    --feature-dir data/clips/my_extension/Features_my_ext/ \
+    --output-dir data/bmn_inputs/my_ext/
+```
+
+### 用我的数据微调现有 BMN 基线 (US3)
+
+```bash
+# 1. 复制 bmn_pingpong.yaml 改 bmn_inputs_dir 为新数据
+cp configs/models/bmn_pingpong.yaml configs/models/bmn_my_ext.yaml
+sed -i 's|bmn_inputs_dir: null|bmn_inputs_dir: data/bmn_inputs/my_ext/|' \
+    configs/models/bmn_my_ext.yaml
+
+# 2. 从 baseline 微调
+.venv/bin/pp train \
+    --config configs/models/bmn_my_ext.yaml \
+    --resume experiments/<baseline>/BMN_epoch_00020.pdparams \
+    --allow-dirty
+```
+
+---
+
 ## 项目结构
 
 ```text
@@ -166,10 +222,11 @@ quickstart + 在 PR 中说明影响. 请参考章程 VI / VIII.
 | 7 完善 | T071–T076 | ✅ 6/6 | 100 测试 + 章程合规自查 |
 | **8 US5 上游样例** | **T077–T080** | **✅ 4/4** | **VideoSwin TableTennis + pkl 推理; SC-007 实测 Top-1 0.9999 命中 GT** |
 | **9 US6 私有 COS + BMN** | **T101–T109** | **✅ 9/9** | **COS 接入 + 43.5GB 数据集 + BMN 训练 (loss 2.59→0.33 in 8 epochs) + eval AR@100=80.37%; SC-008+SC-009 ✓** |
+| **10 002 原始视频端到端** | **T200–T230** | **✅ 31/31** | **`pp extract-feat / build-feature-pkls / infer-rawvideo` + `scripts/export_pptsm_inference.py`; 5 实体 schema; SC-010+SC-011+SC-013+SC-015 ✓** |
 
-**测试**: 100/100 通过 (单元 + 集成).
-**业务代码**: ~5400 行 (含本项目业务) + 4 个上游 patch (~300 行).
-**MVP 架构完成度**: **89/89 任务 = 100%**. SC-007 / SC-008 / SC-009 实测验收; SC-002 (PP-TSM top1 ≥ 70%) 待用户原始视频数据.
+**测试**: 130/130 通过 (含 e2e --runslow), 116 默认.
+**业务代码**: ~7700 行 (含本项目业务) + 4 个上游 patch (~300 行).
+**MVP 架构完成度**: **120/120 任务 = 100%**. SC-007/008/009/010/011/013/015 实测验收; SC-002 (PP-TSM top1 ≥ 70%) 待用户原始视频数据 + LSTM head (out-of-scope, 002 不含).
 
 ---
 

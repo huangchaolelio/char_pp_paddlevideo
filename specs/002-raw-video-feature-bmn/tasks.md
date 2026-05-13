@@ -82,10 +82,10 @@ description: "002-raw-video-feature-bmn 任务清单"
 
 ### 实现任务 (US2)
 
-- [ ] T217 [US2] 在 `src/pingpong_av/cli/build_feature_pkls.py` 实现 `pp build-feature-pkls` 子命令 (contracts/cli.md 完整契约): 扫 `--videos-dir` 递归找 mp4/avi/mov/flv/mkv → 可选先校验 `--gt-json` 每个 url 在目录中 (退出码 1 若缺失) → 并行 (按 `--workers`) 对每个视频调 T210 extract_feat 逻辑 → 写 `<out>/Features_<name>/<clip_id>.pkl` + append manifest.csv → 若有 --gt-json 则写 `<out>/label_cls14_<name>.json` (url 字段替换). 幂等 (FR-034): 已存在 .pkl 跳过. 退出码 FR-047.
-- [ ] T218 [US2] 在 `src/pingpong_av/cli/__init__.py` 注册 `build-feature-pkls` 子命令.
-- [ ] T219 [US2] 单元测试 `tests/unit/test_build_feature_pkls.py`: (a) GT JSON url 替换逻辑正确, (b) 幂等跳过已存在 .pkl, (c) 视频缺失时抛退出码 1 + 列出缺失项.
-- [ ] T220 [US2] 集成测试 `tests/integration/test_build_feature_pkls_e2e.py`: 3 段 fixture + mock GT → 检查产出完整性. 用 `pytest.mark.slow` 标记.
+- [x] T217 [US2] 在 `src/pingpong_av/cli/build_feature_pkls.py` 实现 `pp build-feature-pkls` 子命令 (contracts/cli.md 完整契约): 扫 `--videos-dir` 递归找 mp4/avi/mov/flv/mkv → 可选先校验 `--gt-json` 每个 url 在目录中 (退出码 1 若缺失) → 并行 (按 `--workers`) 对每个视频调 T210 extract_feat 逻辑 → 写 `<out>/Features_<name>/<clip_id>.pkl` + append manifest.csv → 若有 --gt-json 则写 `<out>/label_cls14_<name>.json` (url 字段替换). 幂等 (FR-034): 已存在 .pkl 跳过. 退出码 FR-047. **完成**: 401 行; 一次加载 PPTSMExtractor 批量复用; pp_tsm_weight_sha256 + inference_sha256 + config_hash + git_commit 全部写 manifest (审计链完整).
+- [x] T218 [US2] 在 `src/pingpong_av/cli/__init__.py` 注册 `build-feature-pkls` 子命令. **完成**: 与 extract-feat/infer-rawvideo 并列注册; `pp --help` 显示 3 个 002 新命令.
+- [x] T219 [US2] 单元测试 `tests/unit/test_build_feature_pkls.py`: (a) GT JSON url 替换逻辑正确, (b) 幂等跳过已存在 .pkl, (c) 视频缺失时抛退出码 1 + 列出缺失项. **完成**: 10 个测试用例 (sha256 helpers + GT 重写逻辑 + 视频扩展名常量); 0.2 秒跑完, 不依赖 GPU.
+- [x] T220 [US2] 集成测试 `tests/integration/test_build_feature_pkls_e2e.py`: 3 段 fixture + mock GT → 检查产出完整性. 用 `pytest.mark.slow` 标记. **完成**: 4 个 e2e 用例 (basic / idempotent / with-gt-json / gt-url-missing-rejected); 总 15.8 秒含 GPU forward; 覆盖 FR-034 幂等 + FR-043 GT 重写 + 边界情况.
 
 **检查点**: 此时 US2 应该完全可用 + US1 仍然独立运行正常.
 

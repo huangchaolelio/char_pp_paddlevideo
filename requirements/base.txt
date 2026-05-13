@@ -9,6 +9,10 @@
 #   - 主版本固定 (~=X.Y), 允许补丁与小版本更新
 #   - Python 3.11 兼容性优先
 #   - 与上游 PaddleVideo release/2.4 的间接依赖保持兼容
+#
+# 002 feature (raw-video-feature-bmn) 增量:
+#   - 无新依赖. ffmpeg / numpy / Pillow / paddle 都已在 upstream 或本文件.
+#   - cos-python-sdk-v5 已在 v0.2.x 加入.
 # ============================================================
 
 # CLI 框架

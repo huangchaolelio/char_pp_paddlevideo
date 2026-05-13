@@ -6,12 +6,12 @@
 
 - **语言**: Python 3.11 (固定, 由章程 VIII 规定; 任何其他版本都不允许进入主分支)
 - **框架**: PaddlePaddle (GPU wheel, 官方支持 3.11 版本) + PaddleVideo (上游, 以 Git submodule 方式接入 `third_party/PaddleVideo/`, 固定到 `release/2.2.0` 分支 commit `da9a8ce8`)
-- **基线模型**: PP-TSM + ResNet50 + 8 frames + Kinetics-400 预训练 (在 `configs/models/pp_tsm_pingpong.yaml` 中定义, 通过配置驱动, 禁止硬编码)
+- **基线模型**: PP-TSM + ResNet50 + 8 frames + Kinetics-400 预训练 (在 `configs/models/pp_tsm_pingpong.yaml` 中定义, 通过配置驱动, 禁止硬编码); 002 feature 增加 PP-TSM 抽特征器 (`configs/models/pp_tsm_extractor.yaml`) 与 BMN 时序定位主线 (`configs/models/bmn_pingpong.yaml`)
 - **依赖管理**: `requirements/base.txt` + `requirements/upstream-py311.txt` + `requirements/lock.txt` (全部入库); 隔离环境位于 `.venv/` (gitignore)
-- **测试**: pytest (仅覆盖业务代码: 划分无泄漏、滑窗后处理、配置加载、CLI 启动性)
-- **CLI 入口**: `pp` (pyproject.toml entry point) → `src/pingpong_av/cli/`
-- **数据来源**: PaddleVideo 官方乒乓球动作识别示例数据集 (公开), 类别表由数据集 metadata 派生
-- **长视频推理**: 固定窗口 + 步长滑窗 (默认 window=2s, stride=1s, threshold=0.5), 相邻同类合并
+- **测试**: pytest (覆盖业务代码: 划分无泄漏、滑窗后处理、配置加载、CLI 启动性、clip_id / PPTSMExtractor / build_feature_pkls; 130/130 含 e2e); `--runslow` 启用 GPU e2e
+- **CLI 入口**: `pp` (pyproject.toml entry point) → `src/pingpong_av/cli/`. 002 feature 增加 3 个子命令: `extract-feat / build-feature-pkls / infer-rawvideo`
+- **数据来源**: PaddleVideo 官方乒乓球动作识别示例数据集 (公开), 类别表由数据集 metadata 派生; 002 feature 也支持任意 mp4 输入 (PP-TSM 抽特征 + BMN 推理)
+- **长视频推理**: 固定窗口 + 步长滑窗 (默认 window=2s, stride=1s, threshold=0.5), 相邻同类合并; 002 feature 用 `pp infer-rawvideo` 走 BMN 时序定位 (8s 窗口 + tscale=200) 输出 ActivityNet 1.3 风格 timeline.json (schema=`rawvideo-timeline-v1`)
 
 ## 项目结构
 
@@ -62,12 +62,20 @@ char_pp_prj/
 .venv/bin/pp eval         --checkpoint experiments/<run_id>/checkpoints/best.pdparams
 .venv/bin/pp infer-video  --checkpoint <...> --input <...> --inference-config configs/inference/sliding_window.yaml --output-dir outputs/<...>
 
+# 002 feature: 原始视频端到端 (≤ 4 条命令)
+curl -fL -o data/raw/pretrained/ppTSM_k400_dense.pdparams \
+    https://videotag.bj.bcebos.com/PaddleVideo-release2.1/PPTSM/ppTSM_k400_dense.pdparams
+.venv/bin/pp extract-feat       --input my_video.mp4              # 单视频 → pkl
+.venv/bin/pp build-feature-pkls --videos-dir my_videos/ --output-dir data/clips/my_ext/ --gt-json my.json  # 批量 + GT 重写
+.venv/bin/pp infer-rawvideo     --input my.mp4 --bmn-checkpoint <...> --output-dir outputs/<...>  # 端到端 timeline.json
+
 # 一次性初始化
 git submodule update --init --recursive
 bash scripts/bootstrap.sh
 
-# 测试
+# 测试 (默认跳过 GPU e2e; --runslow 启用)
 .venv/bin/pytest tests/unit tests/integration
+.venv/bin/pytest tests/ --runslow      # 含 GPU e2e (extract-feat / infer-rawvideo / build-feature-pkls)
 ```
 
 退出码: `0` 成功 · `1` 用户输入错 · `2` 环境问题 · `3` 章程硬约束违反 · `4` 运行时失败.
@@ -95,6 +103,7 @@ bash scripts/bootstrap.sh
 
 ## 最近变更
 
+- **2026-05-13**: `002-raw-video-feature-bmn` — 原始视频到 BMN 时序定位的端到端适配 (v0.3.0). 3 个新 CLI 子命令 (`extract-feat / build-feature-pkls / infer-rawvideo`) + 1 个工具脚本 (`scripts/export_pptsm_inference.py` 训练权重 → inference 模型). 5 个新数据实体 schema (RawVideo / ImageFeaturePkl / PPTSMTrainWeight / PPTSMInferenceModel / RawVideoTimelineResult). SC-010 实测 13 秒端到端 (远 < 5 分钟门槛). 不新增上游 patches (SC-015 兜底), 通过 monkey-patch + adapter 模式. 130/130 测试通过.
 - **2026-05-11**: `001-pingpong-action-recognition` — 初始建立完整项目骨架规范 (spec + plan + research + data-model + contracts + quickstart), 确立 Python 3.11 隔离环境 + PaddleVideo submodule + PP-TSM 基线 + 公开乒乓球数据集的技术主线.
 
 <!-- MANUAL ADDITIONS START -->

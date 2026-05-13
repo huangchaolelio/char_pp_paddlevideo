@@ -92,10 +92,15 @@ top 3 by score:
     --output-dir data/bmn_inputs/my_ext/
 
 # 3. (可选) 微调现有 BMN 基线 — US3
+#    复制 bmn_pingpong.yaml 为本次微调专用版本 (改 bmn_inputs_dir 指向你的数据)
+cp configs/models/bmn_pingpong.yaml configs/models/bmn_my_ext.yaml
+# 编辑 bmn_my_ext.yaml: 把 model.bmn_inputs_dir 改成 data/bmn_inputs/my_ext/
+# 或者用 sed 一行解决:
+sed -i 's|bmn_inputs_dir: null|bmn_inputs_dir: data/bmn_inputs/my_ext/|' configs/models/bmn_my_ext.yaml
+
 .venv/bin/pp train \
-    --config configs/models/bmn_pingpong.yaml \
+    --config configs/models/bmn_my_ext.yaml \
     --resume experiments/<baseline>/BMN_epoch_00020.pdparams \
-    --override dataset.bmn_inputs_dir=data/bmn_inputs/my_ext/ \
     --allow-dirty
 ```
 
