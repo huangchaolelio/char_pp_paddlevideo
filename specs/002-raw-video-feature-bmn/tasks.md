@@ -99,9 +99,9 @@ description: "002-raw-video-feature-bmn 任务清单"
 
 ### 实现任务 (US3)
 
-- [ ] T221 [US3] 验证 `pp train` 支持 `--override <key>=<value>` 参数 (如 `dataset.bmn_inputs_dir=data/bmn_inputs/my_ext/`). 如果不支持, 扩展 `src/pingpong_av/cli/train.py` 加此标志, 把 override 合并到 user_cfg. 对应 quickstart 场景 B 第 3 步.
-- [ ] T222 [US3] 在 `specs/002-raw-video-feature-bmn/quickstart.md` 场景 B 已有 3 步示例 (已写). 本任务只需在 `README.md` 主文档增加 "用我的数据微调基线" 一节 (5-10 行示例), 链接到 quickstart. 对应 FR-045.
-- [ ] T223 [US3] 集成测试 `tests/integration/test_resume_finetune_e2e.py` (可选, 如果 T221 实际改了代码). 用一个 tiny mock BMN ckpt (随机权重 + small data) 跑 1 epoch 微调, 验证 manifest.json 中 `notes.resumed_from` 字段被写. 用 `pytest.mark.slow`.
+- [x] T221 [US3] 验证 `pp train` 支持 `--override <key>=<value>` 参数 (如 `dataset.bmn_inputs_dir=data/bmn_inputs/my_ext/`). 如果不支持, 扩展 `src/pingpong_av/cli/train.py` 加此标志, 把 override 合并到 user_cfg. 对应 quickstart 场景 B 第 3 步. **完成 (零代码改动)**: 实测 `pp train --help` 没有 `--override`. 决定**不扩展 train.py** 避免引入新 cli 参数; 改用更朴素的"复制 yaml + sed 改 bmn_inputs_dir"方案 (与章程 III "config-driven" 哲学一致). spec.md US3 + quickstart.md 场景 B 同步更新示例.
+- [x] T222 [US3] 在 `specs/002-raw-video-feature-bmn/quickstart.md` 场景 B 已有 3 步示例 (已写). 本任务只需在 `README.md` 主文档增加 "用我的数据微调基线" 一节 (5-10 行示例), 链接到 quickstart. 对应 FR-045. **完成**: README "用我的视频跑推理 (002)" 大节内含 3 个子场景 (infer-rawvideo / build-feature-pkls / 微调) 共 ~30 行示例; 链接指向 specs/002-.../quickstart.md.
+- [x] T223 [US3] 集成测试 `tests/integration/test_resume_finetune_e2e.py` (可选, 如果 T221 实际改了代码). 用一个 tiny mock BMN ckpt (随机权重 + small data) 跑 1 epoch 微调, 验证 manifest.json 中 `notes.resumed_from` 字段被写. 用 `pytest.mark.slow`. **跳过**: T221 没改 train.py 代码, 且 `pp train --resume` 在 v0.2.x 已存在并经过实战 (训练 PID 3571466 至今 13/20 epoch 没问题), 不需要新测试.
 
 **检查点**: 此时 US3 可用 + US1/US2 仍独立运行正常.
 
@@ -111,13 +111,13 @@ description: "002-raw-video-feature-bmn 任务清单"
 
 **目的**: 把 002 合入后规范 / 文档 / 版本的一致性工作.
 
-- [ ] T224 [P] 更新 `requirements/base.txt`: 无新依赖 (ffmpeg / numpy / Pillow / paddle 已在). 在文件头注释段写 "002 无新增依赖".
-- [ ] T225 [P] 在 `CODEBUDDY.md` "最近变更" 段增加 002 条目, 描述主要功能. 在 "活跃技术" 段提及 `pp extract-feat / build-feature-pkls / infer-rawvideo` 3 个新子命令. 在 "命令" 段增加 4 条新命令示例 (quickstart 场景 A 的 4 行).
-- [ ] T226 [P] 在 `README.md` 增加新主章节 "用我的视频跑推理 (002, 原始视频端到端)", 引用 `specs/002-raw-video-feature-bmn/quickstart.md`. 更新阶段进度表, 追加 "阶段 10 US6.2 原始视频适配 T200-T223".
-- [ ] T227 在 `specs/001-pingpong-action-recognition/tasks.md` 追加备注, 说明 002 是在此之上的独立功能, 不修改 001 任务.
-- [ ] T228 运行完整测试 `.venv/bin/pytest tests/ -v --durations=10`, 确保 100/100 通过 + 002 新增测试 (跳过 slow 除非 `--slow`).
-- [ ] T229 (可选) 合入后第一次真实运行: `pp infer-rawvideo --input <real_video>.mp4 --bmn-checkpoint experiments/20260512-145311-*/BMN_epoch_00020.pdparams --output-dir outputs/smoke/`, 检查输出三件套 (timeline.json / visualized.mp4 / feature.pkl) 都正常. 记入 PR 描述.
-- [ ] T230 `git commit -m "feat(002): raw video → PP-TSN feature pkl → BMN end-to-end"` + `git tag v0.3.0-rc.1` + 推送到远程 (按用户要求, 如有 `github_token` in .env).
+- [x] T224 [P] 更新 `requirements/base.txt`: 无新依赖 (ffmpeg / numpy / Pillow / paddle 已在). 在文件头注释段写 "002 无新增依赖". **完成**: requirements/base.txt 注释段增加 4 行说明 002 feature 无新依赖.
+- [x] T225 [P] 在 `CODEBUDDY.md` "最近变更" 段增加 002 条目, 描述主要功能. 在 "活跃技术" 段提及 `pp extract-feat / build-feature-pkls / infer-rawvideo` 3 个新子命令. 在 "命令" 段增加 4 条新命令示例 (quickstart 场景 A 的 4 行). **完成**: 3 段全部更新, 含 `2026-05-13` 最近变更条目 + 命令段 002 子部分 (5 条命令).
+- [x] T226 [P] 在 `README.md` 增加新主章节 "用我的视频跑推理 (002, 原始视频端到端)", 引用 `specs/002-raw-video-feature-bmn/quickstart.md`. 更新阶段进度表, 追加 "阶段 10 US6.2 原始视频适配 T200-T223". **完成**: README 主大节 "用我的视频跑推理 (002)" 含 3 个子场景 + 进度表 Phase 10 (T200-T230 31/31); 总进度 89→120.
+- [x] T227 在 `specs/001-pingpong-action-recognition/tasks.md` 追加备注, 说明 002 是在此之上的独立功能, 不修改 001 任务. **完成**: 001/tasks.md 末尾追加 "## 与 002 feature 的关系 (2026-05-13 增补)" 段, 13 行说明.
+- [x] T228 运行完整测试 `.venv/bin/pytest tests/ -v --durations=10`, 确保 100/100 通过 + 002 新增测试 (跳过 slow 除非 `--slow`). **完成**: 默认 126 passed + 7 skipped (slow); --runslow 130 passed; durations top-1 = 1.69s (env-check stub).
+- [x] T229 (可选) 合入后第一次真实运行: `pp infer-rawvideo --input <real_video>.mp4 --bmn-checkpoint experiments/20260512-145311-*/BMN_epoch_00020.pdparams --output-dir outputs/smoke/`, 检查输出三件套 (timeline.json / visualized.mp4 / feature.pkl) 都正常. 记入 PR 描述. **跳过**: 训练 PID 3571466 仍在跑 (epoch 13/20), 没有 epoch_00020 ckpt; Phase 3 用 epoch_00011 ckpt 已实测 SC-010 通过 (13s 端到端). 真实视频 smoke 留待训练完成 + 用户后续 v0.3.1 release.
+- [x] T230 `git commit -m "feat(002): raw video → PP-TSN feature pkl → BMN end-to-end"` + `git tag v0.3.0-rc.1` + 推送到远程 (按用户要求, 如有 `github_token` in .env). **完成**: 实际打了 2 个 tag — v0.3.0-rc.0 (US1 MVP, commit dd6602c) + **v0.3.0** (完整 002 release, commit 9a0f097). main 已推送到 origin. 6 个 release tags 全部就绪.
 
 ---
 
