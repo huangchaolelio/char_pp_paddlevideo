@@ -208,6 +208,92 @@ def infer_video_cmd(checkpoint: str, input_path: str, inference_config: str,
 
 
 # --------------------------------------------------------------------------------------
+# 002 feature 子命令: 原始视频 → BMN 端到端
+# --------------------------------------------------------------------------------------
+
+
+@cli.command(name="extract-feat")
+@click.option("--input", "input_path", required=True, type=click.Path(exists=True, dir_okay=False),
+              help="输入视频文件 (mp4/avi/mov/flv/mkv 等任意 ffmpeg 可解格式).")
+@click.option("--output", "output_path", type=click.Path(dir_okay=False), default=None,
+              help="输出 .pkl 路径; 默认在视频同目录, 文件名为 <sha256(file_bytes)[:32]>.pkl.")
+@click.option("--fps", type=int, default=None,
+              help="强制抽帧 fps; 不传则从 yaml 读 (默认 25).")
+@click.option("--batch-size", "batch_size", type=int, default=None,
+              help="PP-TSM forward batch_size; 不传则从 yaml 读 (默认 32).")
+@click.option("--config", "config_path", type=click.Path(exists=True, dir_okay=False),
+              default="configs/models/pp_tsm_extractor.yaml",
+              help="抽特征业务配置 YAML.")
+@click.option("--allow-dirty", is_flag=True, default=False,
+              help="git 工作区脏时仍允许运行.")
+@click.option("--keep-frames", is_flag=True, default=False,
+              help="保留 ffmpeg 抽帧临时目录 (默认结束时清理).")
+def extract_feat_cmd(input_path: str, output_path: str | None, fps: int | None,
+                     batch_size: int | None, config_path: str,
+                     allow_dirty: bool, keep_frames: bool) -> None:
+    """原始视频 → 2048-d PP-TSM 特征 pkl (002 feature, FR-033)."""
+    from pingpong_av.cli import extract_feat as _real
+    sys.exit(_real.run(
+        input_path=input_path,
+        output_path=output_path,
+        fps=fps,
+        batch_size=batch_size,
+        config_path=config_path,
+        allow_dirty=allow_dirty,
+        keep_frames=keep_frames,
+    ))
+
+
+@cli.command(name="infer-rawvideo")
+@click.option("--input", "input_path", required=True, type=click.Path(exists=True, dir_okay=False),
+              help="输入原始视频文件 (任意 ffmpeg 可解格式).")
+@click.option("--bmn-checkpoint", "bmn_checkpoint", required=True,
+              type=click.Path(exists=True, dir_okay=False),
+              help="BMN .pdparams 路径 (本仓库 v0.2.x 训练产物).")
+@click.option("--output-dir", "output_dir", required=True, type=click.Path(file_okay=False),
+              help="输出根目录, 将产生 timeline.json + visualized.mp4 + feature.pkl.")
+@click.option("--threshold", type=float, default=0.0,
+              help="BMN proposal score 过滤阈值; 默认 0 (不过滤).")
+@click.option("--min-duration", "min_duration", type=float, default=0.3,
+              help="最小区间时长秒, 过滤太短候选; 默认 0.3.")
+@click.option("--allow-dirty", is_flag=True, default=False,
+              help="git 工作区脏时仍允许运行.")
+@click.option("--keep-frames", is_flag=True, default=False,
+              help="保留 ffmpeg 抽帧临时目录.")
+@click.option("--keep-features", is_flag=True, default=True,
+              help="保留中间产物 feature.pkl (默认 ON, 便于 debug / 断点续算).")
+@click.option("--no-visualize", is_flag=True, default=False,
+              help="跳过可视化 mp4 渲染 (调试用).")
+@click.option("--extractor-config", "extractor_config",
+              type=click.Path(exists=True, dir_okay=False),
+              default="configs/models/pp_tsm_extractor.yaml",
+              help="PP-TSM 抽特征 YAML.")
+@click.option("--bmn-config", "bmn_config",
+              type=click.Path(exists=True, dir_okay=False),
+              default="configs/models/bmn_pingpong.yaml",
+              help="BMN 业务 YAML.")
+def infer_rawvideo_cmd(input_path: str, bmn_checkpoint: str, output_dir: str,
+                       threshold: float, min_duration: float,
+                       allow_dirty: bool, keep_frames: bool, keep_features: bool,
+                       no_visualize: bool, extractor_config: str, bmn_config: str) -> None:
+    """端到端原始视频推理: mp4 → timeline.json + 可视化 mp4 (002 feature, FR-039/040)."""
+    from pingpong_av.cli import infer_rawvideo as _real
+    sys.exit(_real.run(
+        input_path=input_path,
+        bmn_checkpoint=bmn_checkpoint,
+        output_dir=output_dir,
+        threshold=threshold,
+        min_duration=min_duration,
+        allow_dirty=allow_dirty,
+        keep_frames=keep_frames,
+        keep_features=keep_features,
+        no_visualize=no_visualize,
+        extractor_config=extractor_config,
+        bmn_config=bmn_config,
+    ))
+
+
+# --------------------------------------------------------------------------------------
 # entry point
 # --------------------------------------------------------------------------------------
 

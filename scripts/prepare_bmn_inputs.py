@@ -223,6 +223,226 @@ def _read_split_clip_ids(split_file: Path) -> set[str]:
     return out
 
 
+# ============================================================
+# 公共 API (T208, 2026-05-13 新增, 002 feature)
+# ============================================================
+
+
+def prepare_bmn_inputs_for_training(
+    *,
+    label_json: Path,
+    feature_dir: Path,
+    output_dir: Path,
+    split_clip_ids: dict[str, set[str]] | None = None,
+    rng_seed: int = RNG_SEED,
+    bmn_window: int = BMN_WINDOW,
+) -> dict:
+    """训练路径: 有 GT, 把 labels + features → BMN 期望的 feature/*.npy + label_fixed.json.
+
+    与 ``main()`` 行为等价, 但接受参数 (不依赖全局常量 LABEL_JSON / FEAT_DIR / OUT_DIR).
+    ``main()`` 仍存在做向后兼容, 实际是 wrapper.
+
+    Args:
+        label_json: label_cls14_train.json 路径 (含 gts + fps).
+        feature_dir: Features_*/*.pkl 所在目录.
+        output_dir: 输出根目录, 会写入 ``feature/*.npy``, ``label_fixed.json``, ``label_gts.json``.
+        split_clip_ids: 可选, ``{"train": set(), "validation": set(), "test": set()}``;
+                        若提供, 按此切分 GT; 若为 None, 所有 GT 视为 train.
+        rng_seed: 与 main 一致.
+        bmn_window: 8 秒窗口 (上游 BMN 默认).
+
+    Returns:
+        ``{"n_windows": int, "n_npy": int, "miss": int, "label_fixed_json": str}``
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    gts_data = json.loads(label_json.read_text(encoding="utf-8"))
+    fps = gts_data["fps"]
+
+    # 切分
+    if split_clip_ids is None:
+        split_clip_ids = {"train": {Path(str(g.get("url", ""))).stem for g in gts_data["gts"]}}
+
+    split_gts: dict[str, dict] = {}
+    for split_name in ("train", "validation", "test"):
+        split_gts[split_name] = {"fps": fps, "gts": []}
+    for g in gts_data["gts"]:
+        cid = Path(str(g.get("url", ""))).stem
+        for split_name, ids in split_clip_ids.items():
+            if cid in ids:
+                split_gts[split_name]["gts"].append(g)
+                break
+
+    rng = random.Random(rng_seed)
+    gts_bmn: dict = {}
+    # 上游 BMN subset 只区分 train / validation (test 不单独训)
+    for mode in ("train", "validation"):
+        gts_in = split_gts.get(mode, {"fps": fps, "gts": []})
+        gts_process = gen_gts_for_bmn(gts_in)
+        gts_bmn = combile_gts(gts_bmn, gts_process, mode, rng=rng)
+
+    # 切片 → .npy
+    feat_out = output_dir / "feature"
+    miss = save_feature_to_numpy(gts_bmn, feat_out, fps=fps, feat_dir=feature_dir)
+    available = {p.stem for p in feat_out.glob("*.npy")}
+    gts_bmn = {name: v for name, v in gts_bmn.items() if name in available}
+
+    # 写 label_fixed + label_gts
+    label_fixed = output_dir / "label_fixed.json"
+    label_fixed.write_text(json.dumps(gts_bmn, indent=4, ensure_ascii=False), encoding="utf-8")
+    label_gts = output_dir / "label_gts.json"
+    label_gts.write_text(
+        json.dumps({"taxonomy": None, "database": gts_bmn, "version": None},
+                   indent=4, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return {
+        "n_windows": len(gts_bmn),
+        "n_npy": sum(1 for _ in feat_out.glob("*.npy")),
+        "miss": miss,
+        "label_fixed_json": str(label_fixed),
+        "label_gts_json": str(label_gts),
+        "feature_dir": str(feat_out),
+    }
+
+
+def prepare_bmn_inputs_for_inference(
+    *,
+    feature_pkl: Path,
+    output_dir: Path,
+    clip_id: str | None = None,
+    fps: int = 25,
+    bmn_window: int = BMN_WINDOW,
+    stride: int | None = None,
+) -> dict:
+    """推理路径 (**无 GT**): 单个特征 pkl → BMN 滑窗 .npy + 占位 label_fixed.json.
+
+    与训练路径的关键区别:
+        - 无 GT, 所有 annotations=[] (让 BMN dataloader 不报错即可)
+        - 不拆分 subset, 所有窗口都标 "validation" (上游 BMN 推理默认的 subset)
+        - 用**连续滑窗**而不是 ground-truth-centered 滑窗: ``stride`` 控制步长, 默认 = bmn_window (不重叠)
+
+    Args:
+        feature_pkl: PP-TSM 抽出的 ``{'image_feature': (N, 2048)}`` pickle 文件.
+        output_dir: 输出根目录.
+        clip_id: 如为 None, 用 pkl 文件名 stem (PP-TSM 抽出的 pkl 名就是 clip_id).
+        fps: 视频 fps, 用于时间戳换算 (应与抽特征时一致).
+        bmn_window: 8 秒窗口.
+        stride: 滑窗步长秒; None → bmn_window (不重叠).
+
+    Returns:
+        ``{"n_windows": int, "n_npy": int, "label_fixed_json": str, "clip_id": str}``
+    """
+    import pickle
+
+    import numpy as np
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    feat_out = output_dir / "feature"
+    feat_out.mkdir(exist_ok=True)
+
+    with feature_pkl.open("rb") as f:
+        obj = pickle.load(f)
+    image_feat = obj["image_feature"]  # (N, 2048) 或 (N/seg_num, 2048) 看抽法
+    n_samples = image_feat.shape[0]
+
+    # clip_id 默认用文件名 stem
+    cid = clip_id or feature_pkl.stem
+
+    if stride is None:
+        stride = bmn_window
+
+    # BMN 期望每个窗口是 (tscale=200, 2048) 形状. 用 feature 的采样速率:
+    # 如果 PP-TSM 抽法是"每 seg_num=8 帧一个样本", 每秒 fps/seg_num = 25/8 ≈ 3.125 个样本.
+    # 8 秒窗口约 25 个样本, 远 < tscale=200. **不兼容**.
+    #
+    # 解决: 在本函数里把 image_feat 做**时间维插值**到 (tscale * n_windows, 2048).
+    # 这样每个窗口切出 200 个样本, 匹配 BMN 期望.
+    # (训练路径 v0.2.x 的 save_feature_to_numpy 也是这么做的, 按 fps 从 "每帧 1 样本"的假设切;
+    # 这里我们 PP-TSM 输出是 "每 8 帧 1 样本", 所以要先插值)
+    #
+    # 简化实现: 按 bmn_window 秒切窗, 每窗内线性插值到 tscale=200.
+    # 这不是业务最优但能让 pipeline 跑通.
+
+    total_duration_sec = n_samples * 8.0 / fps  # seg_num=8 假设
+    tscale = 200  # 上游 BMN 默认
+    gts_bmn: dict[str, dict] = {}
+
+    # 生成窗口列表
+    windows = []
+    t = 0.0
+    while t + bmn_window <= total_duration_sec + 1e-6:
+        windows.append((t, t + bmn_window))
+        t += stride
+
+    # 如果视频不足一窗, 至少切一个窗 (全视频)
+    if not windows and total_duration_sec > 0:
+        windows.append((0.0, min(total_duration_sec, float(bmn_window))))
+
+    samples_per_window = image_feat.shape[0] / max(total_duration_sec / bmn_window, 1.0) if windows else n_samples
+
+    for (t0, t1) in windows:
+        # 从 image_feat 取 [t0*fps/seg_num, t1*fps/seg_num] 切片
+        i0 = int(round(t0 * image_feat.shape[0] / total_duration_sec)) if total_duration_sec > 0 else 0
+        i1 = int(round(t1 * image_feat.shape[0] / total_duration_sec)) if total_duration_sec > 0 else image_feat.shape[0]
+        i1 = min(max(i1, i0 + 1), image_feat.shape[0])
+        slice_feat = image_feat[i0:i1]
+
+        # 线性插值到 tscale=200
+        if slice_feat.shape[0] != tscale:
+            if slice_feat.shape[0] == 0:
+                continue
+            src_idx = np.arange(slice_feat.shape[0], dtype=np.float32)
+            tgt_idx = np.linspace(0, slice_feat.shape[0] - 1, tscale, dtype=np.float32)
+            # 每维度独立插值
+            resampled = np.empty((tscale, slice_feat.shape[1]), dtype=np.float32)
+            for d in range(slice_feat.shape[1]):
+                resampled[:, d] = np.interp(tgt_idx, src_idx, slice_feat[:, d])
+            slice_feat = resampled
+
+        name = f"{cid}_{t0:.2f}_{t1:.2f}"
+        np.save(feat_out / name, slice_feat.astype(np.float32))
+        gts_bmn[name] = {
+            "duration_second": float(bmn_window),
+            "duration_frame": bmn_window * fps,
+            "feature_frame": bmn_window * fps,
+            "subset": "validation",
+            # 必须给至少 1 个 dummy annotation, 否则上游 anet_pipeline.py:118
+            # `np.max(gt_iou_map, axis=0)` 在 dataloader 阶段就抛 ValueError (zero-size array).
+            # 推理时 BMN 不用 GT, 但 dataloader 仍走相同 pipeline. 给一个零长度 segment 占位.
+            "annotations": [
+                {
+                    "segment":    [0.0, 0.0],
+                    "label":      "0",
+                    "label_name": "dummy_inference_placeholder",
+                }
+            ],
+        }
+
+    # 写占位 label
+    label_fixed = output_dir / "label_fixed.json"
+    label_fixed.write_text(json.dumps(gts_bmn, indent=4, ensure_ascii=False), encoding="utf-8")
+    label_gts = output_dir / "label_gts.json"
+    label_gts.write_text(
+        json.dumps({"taxonomy": None, "database": gts_bmn, "version": None},
+                   indent=4, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    return {
+        "n_windows": len(gts_bmn),
+        "n_npy": sum(1 for _ in feat_out.glob("*.npy")),
+        "label_fixed_json": str(label_fixed),
+        "label_gts_json": str(label_gts),
+        "feature_dir": str(feat_out),
+        "clip_id": cid,
+    }
+
+
+# ============================================================
+# main (向后兼容 CLI 入口)
+# ============================================================
+
+
 def main() -> int:
     print(f"BMN inputs preparation")
     print(f"  RAW_ROOT:  {RAW_ROOT}")

@@ -1,0 +1,87 @@
+# ============================================================
+# configs/models/pp_tsm_extractor.yaml
+# ------------------------------------------------------------
+# PP-TSM 特征提取器配置 (US1/US2 前置: 原始视频 → 2048-d 特征 pkl).
+# 对应 002 feature: research.md R10 + data-model.md PPTSMTrainWeight + PPTSMInferenceModel + FR-033..038a.
+#
+# 与训练用 `configs/models/pp_tsm_pingpong.yaml` **不同**:
+#   - pp_tsm_pingpong.yaml 描述"怎么训 PP-TSM 分类器" (动态图, 8 类 head)
+#   - pp_tsm_extractor.yaml 描述"怎么用 PP-TSM 抽 2048-d 特征" (静态图 Predictor, 无 head)
+#
+# 章程对齐:
+#   III. 配置驱动: seg_num / batch_size / fps / mean / std 全部在此, 不在源码硬编码
+#   VI.  上游最小侵入: 参考上游 `applications/TableTennis/extractor/configs/configs.yaml`
+#   VII. 端到端 ≤ 5 命令: train_weight 缺失时 cli 给 curl 一行自动下载指引
+# ============================================================
+
+# ---- schema 必填字段 (章程 IV) ----
+# 注: 本 yaml 是**抽特征配置**, 不参与训练/推理的类别预测.
+# 但 `load_config` 的 schema 要求 classes + split_version + model.name 存在,
+# 因此提供占位值 (与 pingpong_competition_bmn.yaml 14 类一致, 便于与 BMN 模型
+# 对齐使用; 抽特征路径实际不会消费这些字段).
+split_version: v0.1
+classes:
+  - { id:  0, name: "baiduan",      display_name: "摆短" }
+  - { id:  1, name: "la",           display_name: "拉" }
+  - { id:  2, name: "kongzhi",      display_name: "控制" }
+  - { id:  3, name: "ceshen_la",    display_name: "侧身拉" }
+  - { id:  4, name: "pichang",      display_name: "劈长" }
+  - { id:  5, name: "ning",         display_name: "拧" }
+  - { id:  6, name: "tiao",         display_name: "挑" }
+  - { id:  7, name: "cexuan",       display_name: "侧旋" }
+  - { id:  8, name: "zhuan_buzhuan", display_name: "转不转" }
+  - { id:  9, name: "zhongxing",    display_name: "中性" }
+  - { id: 10, name: "gou_qiu",      display_name: "勾球" }
+  - { id: 11, name: "putong",       display_name: "普通" }
+  - { id: 12, name: "ni_xuanzhuan", display_name: "逆旋转" }
+  - { id: 13, name: "xia_dun",      display_name: "下蹲" }
+
+# ---- 模型 (章程 III 必填) ----
+model:
+  name: pp_tsm_extractor
+  backbone: resnet50
+  # 特征维度 (= ResNet50 全局池化后的通道数); 用于下游校验 shape[1] == 2048 (FR-037)
+  feat_dim: 2048
+
+# ---- 抽帧策略 (对齐上游 applications/TableTennis/extractor/configs/configs.yaml) ----
+extraction:
+  fps: 25                  # 强制重采样到 25 fps (与 BMN GT 一致, research.md R11)
+  batch_size: 32           # PP-TSM forward 批量 (T4 默认安全值, OOM 时 CLI 会自动二分)
+  short_size: 256          # ffmpeg 抽帧后, resize 短边到 256
+  target_size: 224         # center crop 到 224x224
+  seg_num: 8               # PP-TSM 时间段数 (上游 ppTSM 默认)
+  seglen: 1                # 每段取几帧 (上游默认 1)
+  # ImageNet 标准化参数 (与 Kinetics-400 预训练时一致)
+  image_mean: [0.485, 0.456, 0.406]
+  image_std:  [0.229, 0.224, 0.225]
+
+# ---- 预训练权重 (data-model.md PPTSMTrainWeight + PPTSMInferenceModel) ----
+pretrained:
+  # 训练权重 (BCEBOS 公开下载; 动态图 state_dict; ~120MB)
+  train_weight_path: data/raw/pretrained/ppTSM_k400_dense.pdparams
+  train_weight_url:  https://videotag.bj.bcebos.com/PaddleVideo-release2.1/PPTSM/ppTSM_k400_dense.pdparams
+  # 预期 sha256 — 若填入则 cli 下载后校验; null 表示跳过校验 (首次可留 null, 下载后再填入)
+  expected_train_sha256: null
+  # Inference 双文件输出目录 (由 scripts/export_pptsm_inference.py 派生)
+  inference_dir: data/raw/pretrained/
+  # 文件名 (派生后的文件, 与上游 extract_feat.py 期望对齐)
+  inference_pdmodel:   ppTSM.pdmodel
+  inference_pdiparams: ppTSM.pdiparams
+  # marker 路径 (幂等标记 + 审计链)
+  export_marker: data/raw/pretrained/.export_marker.json
+
+# ---- 临时目录 (FR-049) ----
+tmp:
+  # 抽帧临时目录根; 命令结束 (成功/失败) 自动清理, 除非 --keep-frames
+  frames_root: data/raw/.tmp/
+  # 临时目录名模板; {run_id} 由 cli 生成 (时间戳 + 随机后缀)
+  frames_dirname_template: "extract_{run_id}"
+
+# ---- 运行时参数 (cli 默认值, 可 --override) ----
+runtime:
+  # workers (US2 `pp build-feature-pkls --workers`): 默认 1 避免单卡 OOM
+  workers: 1
+  # keep_frames: cli 默认 false; --keep-frames 开
+  keep_frames_default: false
+  # keep_features: `pp infer-rawvideo` 默认 true, 便于 debug + 断点续算
+  keep_features_default: true
