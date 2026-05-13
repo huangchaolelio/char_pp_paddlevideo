@@ -328,6 +328,7 @@ def run_upstream_bmn_eval(
     label_gts_path: str | Path | None = None,
     subset: str = "validation",
     reuse_existing: bool = False,
+    gt_required: bool = True,
 ) -> dict[str, Any]:
     """BMN 时序定位的评估循环.
 
@@ -348,6 +349,12 @@ def run_upstream_bmn_eval(
         output_path: 若指定, 覆盖 cfg.METRIC.output_path (BMN per-video 候选区间的中间产物).
         label_gts_path: 若指定, 覆盖 cfg.METRIC.ground_truth_filename.
         subset: BMN Metric 的 subset 标签 (默认 'validation', 与 prepare_bmn_inputs.py 一致).
+        reuse_existing: 若 True 且 result_path 下已有 ``bmn_results_<subset>.json``, 跳过 test_model
+                       前向, 直接重算 metrics. 用于训练并行 / 同 ckpt 调参 / 失败重试.
+        gt_required: 默认 True. 设为 False (002 feature US1 ``pp infer-rawvideo`` 使用):
+                     跳过 ``cal_metrics`` 调用 (推理时无 GT, AR@AN 算不出), 只从
+                     ``bmn_results_<subset>.json`` 读 proposals 列表返回. 返回字典
+                     ``ar@*`` 全为 NaN, ``n_proposals`` 有效.
 
     返回:
         {
@@ -443,6 +450,33 @@ def run_upstream_bmn_eval(
             f"上游 BMNMetric 未写出预期 JSON: {bmn_results_json}. "
             "可能是后处理多进程 crash; 请查看上一层 stdout/stderr."
         )
+
+    # 推理模式 (gt_required=False, 002 feature): 无 GT, 跳过 cal_metrics.
+    # 直接读 bmn_results_<subset>.json 拿到 proposals 列表返回, 让调用方
+    # (例如 pp infer-rawvideo) 自行解析并写 timeline.json.
+    if not gt_required:
+        import json as _json
+        with bmn_results_json.open("r", encoding="utf-8") as _f:
+            _bmn_json = _json.load(_f)
+        _n_videos = len(_bmn_json.get("results", {}))
+        _n_proposals = sum(len(v) for v in _bmn_json.get("results", {}).values())
+        _log.info(
+            "BMN eval done (gt_required=False, skipped cal_metrics)",
+            extra={"n_videos": _n_videos, "n_proposals": _n_proposals},
+        )
+        return {
+            "ar@1":   float("nan"),
+            "ar@5":   float("nan"),
+            "ar@10":  float("nan"),
+            "ar@100": float("nan"),
+            "average_nr_proposals": [],
+            "average_recall":       [],
+            "result_path":        str(metric["result_path"]),
+            "bmn_results_json":   str(bmn_results_json),
+            "n_videos_evaluated": _n_videos,
+            "n_proposals":        _n_proposals,
+            "subset":             metric.get("subset", "validation"),
+        }
 
     import numpy as np
     # 重新跑 cal_metrics (轻量, 只读 JSON, 不需要 GPU); 用与上游一致的 tiou_thresholds

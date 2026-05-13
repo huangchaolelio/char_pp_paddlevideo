@@ -40,6 +40,9 @@ data/clips/**
 data/bmn_inputs/
 # 上游 anet_prop.py 硬编码 'data/bmn/BMN_Test_results/auc_result.txt' 输出目录
 data/bmn/
+# 002 feature (FR-049): 原始视频抽帧的临时目录; 命令结束自动清理,
+# Ctrl-C 中断时可能残留大量 jpg, 显式 ignore 兜底
+data/raw/.tmp/
 
 # ============================================================
 # 章程 IV 反向规则: data/splits/ 下的划分文件**必须**入库

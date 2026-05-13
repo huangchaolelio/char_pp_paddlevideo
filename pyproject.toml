@@ -129,4 +129,5 @@ filterwarnings = [
 markers = [
     "integration: 集成测试 (端到端启动 / 子进程调用)",
     "gpu: 需要 GPU 才能运行的测试",
+    "slow: 长耗时测试 (> 30 秒); CI 中默认跳过, 用 --runslow 启用",
 ]
