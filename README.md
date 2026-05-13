@@ -77,6 +77,13 @@ curl -fL -o data/raw/pingpong_public/checkpoints/VideoSwin_tennis.pdparams \
 
 **预期 (SC-008 架构验收)**: 训练循环成功启动, GPU 100% 利用, loss 在前 1000 step 内从 ~1.77 降到 ~1.5 以下. 完整 20 epoch 训练 (上游推荐) 在 T4 上预计 ~24 小时.
 
+```bash
+# 5) 评估 (SC-009): BMN 时序定位 AR@AN 指标
+.venv/bin/pp eval --checkpoint experiments/<run_id>/BMN_epoch_NNNNN.pdparams --split val
+```
+
+**预期 (SC-009 实测)**: 在 epoch 7/20 ckpt 上输出 `bmn-eval-v1` schema, **AR@1=28.78% / AR@5=59.17% / AR@10=68.27% / AR@100=80.37%**, AUC=74.63%. 默认 `reuse_existing=True`: 同 ckpt 重复 eval 会跳过 GPU 前向 (~8min → ~30s).
+
 > 这条路径用的是上游 **BMN (Boundary-Matching Network) + BMNLoss**, 输入是预提取的 PP-TSN feature (2048-d), 输出时序候选区间. 与 PP-TSM 主线 (US2, 视频分类) **互补共存**, 不替换.
 > 14 个动作类别: 摆短 / 拉 / 控制 / 侧身拉 / 劈长 / 拧 / 挑 / 侧旋 / 转不转 / 中性 / 勾球 / 普通 / 逆旋转 / 下蹲. 详见 [research.md R8](specs/001-pingpong-action-recognition/research.md).
 
@@ -158,11 +165,11 @@ quickstart + 在 PR 中说明影响. 请参考章程 VI / VIII.
 | 6 US4 数据扩充 | T066–T070 | ✅ 5/5 | local_dir / 类别表 sentinel / 端到端实测 |
 | 7 完善 | T071–T076 | ✅ 6/6 | 100 测试 + 章程合规自查 |
 | **8 US5 上游样例** | **T077–T080** | **✅ 4/4** | **VideoSwin TableTennis + pkl 推理; SC-007 实测 Top-1 0.9999 命中 GT** |
-| **9 US6 私有 COS + BMN** | **T101–T106** | **✅ 6/6** | **腾讯云 COS 接入 + 43.5GB 数据集; BMN 时序定位训练 (loss 1.77→0.81 in 1050 steps); SC-008 架构验收 ✓** |
+| **9 US6 私有 COS + BMN** | **T101–T109** | **✅ 9/9** | **COS 接入 + 43.5GB 数据集 + BMN 训练 (loss 2.59→0.33 in 8 epochs) + eval AR@100=80.37%; SC-008+SC-009 ✓** |
 
 **测试**: 100/100 通过 (单元 + 集成).
-**业务代码**: ~5000 行 (含本项目业务) + 4 个上游 patch (~300 行).
-**MVP 架构完成度**: **86/86 任务 = 100%**. SC-007 + SC-008 实测验收; SC-002 (PP-TSM top1 ≥ 70%) 待用户原始视频数据.
+**业务代码**: ~5400 行 (含本项目业务) + 4 个上游 patch (~300 行).
+**MVP 架构完成度**: **89/89 任务 = 100%**. SC-007 / SC-008 / SC-009 实测验收; SC-002 (PP-TSM top1 ≥ 70%) 待用户原始视频数据.
 
 ---
 

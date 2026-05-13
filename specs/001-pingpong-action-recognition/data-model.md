@@ -228,6 +228,36 @@ experiments/20260511-203015-a3f1c8e-pp_tsm_pingpong/
 - `prediction.top1_match_gt`: 布尔值或 `null`. 当 `ground_truth.动作类型` 不存在时为 `null`; 存在时为 `topk[0].id == ground_truth.动作类型`.
 - `model.checkpoint`: 绝对路径或本仓库根的相对路径; **不**记录文件 hash (因为上游 BCEBOS 不提供 hash, 添加假 hash 会误导).
 
+### BMN 时序定位评估结果 (`pp eval --config bmn_pingpong.yaml`, US6 / FR-029, 2026-05-12 新增)
+
+```json
+{
+  "schema": "bmn-eval-v1",
+  "checkpoint": "experiments/20260512-145311-09f9d63-train-bmn_pingpong/BMN_epoch_00007.pdparams",
+  "run_id": "20260512-145311-09f9d63-train-bmn_pingpong",
+  "split": "val",
+  "subset": "validation",
+  "n_videos_evaluated": 1967,
+  "n_proposals": 196700,
+  "metrics": {
+    "ar@1":   28.78,
+    "ar@5":   59.17,
+    "ar@10":  68.27,
+    "ar@100": 80.37
+  },
+  "class_names": ["摆短", "拉", "控制", "侧身拉", "劈长", "拧", "挑", "侧旋", "转不转", "中性", "勾球", "普通", "逆旋转", "下蹲"],
+  "result_path": "experiments/.../bmn_eval/results/bmn_results_validation.json"
+}
+```
+
+**字段规则**:
+- `schema`: 必须等于 `"bmn-eval-v1"`. 与 `metrics-v1` (PP-TSM 路径) 严格区分; 调用方按此字段判别如何解析 `metrics` 段.
+- `subset`: 上游 ``BMNMetric`` 的 subset 字段, 当前固定 `"validation"` (我们的 BMN 数据 split 设计下 ``val`` 与 ``test`` 在数据层等价, 都映射到 ``validation``).
+- `metrics`: 4 个 AR@AN 数值 (Average Recall at N Average Number of proposals). 数值范围 [0, 100], 单位是%.
+- `result_path`: ActivityNet 1.3 格式的完整 per-video proposals 文件路径; 下游 NMS / 后处理工具可直接消费.
+- `class_names`: 14 个真实中文类名, 与 `pingpong_competition_bmn.yaml::classes` 同步.
+- **不**含 `confusion_matrix_path` / `per_class.precision/recall` (BMN 是时序定位, per-class confusion 不适用; per-class AR@AN 可从 `result_path` 中的原始数据自行计算).
+
 ---
 
 ## TimelineSegment

@@ -26,7 +26,13 @@ from pingpong_av.upstream_adapter.importer import ensure_paddlevideo_on_path
 from pingpong_av.utils.logging import get_logger
 from pingpong_av.utils.seeding import set_seed
 
-__all__ = ["run_upstream_train", "run_upstream_eval", "run_upstream_infer", "UpstreamRuntimeError"]
+__all__ = [
+    "run_upstream_train",
+    "run_upstream_eval",
+    "run_upstream_bmn_eval",
+    "run_upstream_infer",
+    "UpstreamRuntimeError",
+]
 
 _log = get_logger(__name__)
 
@@ -311,6 +317,219 @@ def run_upstream_eval(
         extra={"n_samples": int(labels.shape[0]), "n_classes": int(logits.shape[1]) if logits.size else 0},
     )
     return {"logits": logits, "labels": labels, "class_names": class_names}
+
+
+def run_upstream_bmn_eval(
+    config_path: str | Path,
+    checkpoint: str | Path,
+    *,
+    result_path: Path | None = None,
+    output_path: Path | None = None,
+    label_gts_path: str | Path | None = None,
+    subset: str = "validation",
+    reuse_existing: bool = False,
+) -> dict[str, Any]:
+    """BMN 时序定位的评估循环.
+
+    与 :func:`run_upstream_eval` 的关键差异:
+        - PP-TSM 输出 logits[N, C]; BMN 输出 (start_score, end_score, confidence_map) 三组张量,
+          经过 NMS-like 后处理后才能得到 proposal 列表. 上游 ``BMNMetric.accumulate()`` 已经做了
+          这一切, 并把 ActivityNet 1.3 风格的结果写到 ``cfg.METRIC.result_path/bmn_results_<subset>.json``.
+        - 上游 Metric 的指标 (AR@1/5/10/100) 仅通过 ``logger.info`` 输出, 没有返回值.
+          本函数在调用上游 ``test_model`` 后, 主动**再调用一次 ``cal_metrics``** 拿到 numpy 数组,
+          以便上层 cli 写入结构化 metrics.json.
+
+    参数:
+        config_path: 训练时的 upstream_config.yaml snapshot (或 BMN 数据集 yaml 走完 load_bmn_config
+                     的产出).
+        checkpoint: ``.pdparams`` 路径.
+        result_path: 若指定, 覆盖 cfg.METRIC.result_path (此目录会被 BMNMetric 写入
+                     ``bmn_results_<subset>.json``); 推荐传入 ``<run_dir>/bmn_eval/``.
+        output_path: 若指定, 覆盖 cfg.METRIC.output_path (BMN per-video 候选区间的中间产物).
+        label_gts_path: 若指定, 覆盖 cfg.METRIC.ground_truth_filename.
+        subset: BMN Metric 的 subset 标签 (默认 'validation', 与 prepare_bmn_inputs.py 一致).
+
+    返回:
+        {
+          "ar@1":   float,
+          "ar@5":   float,
+          "ar@10":  float,
+          "ar@100": float,
+          "average_nr_proposals": ndarray (sorted),
+          "average_recall":       ndarray,
+          "recall_per_tiou":      ndarray (10 tIoU thresholds × len(nr_proposals)),
+          "result_path":          str,
+          "bmn_results_json":     str,
+          "n_videos_evaluated":   int,
+          "n_proposals":          int,
+        }
+    """
+    config_path = Path(config_path).resolve()
+    checkpoint = Path(checkpoint).resolve()
+    if not config_path.is_file():
+        raise FileNotFoundError(f"配置不存在: {config_path}")
+    if not checkpoint.is_file():
+        raise FileNotFoundError(f"checkpoint 不存在: {checkpoint}")
+
+    cfg = _load_upstream_config(config_path, overrides=[])
+
+    # 覆盖 METRIC 字段, 让 BMNMetric 把结果落到我们指定的目录
+    metric = cfg.setdefault("METRIC", {})
+    if subset:
+        metric["subset"] = subset
+    if result_path is not None:
+        result_path = Path(result_path).resolve()
+        result_path.mkdir(parents=True, exist_ok=True)
+        metric["result_path"] = str(result_path)
+    if output_path is not None:
+        output_path = Path(output_path).resolve()
+        output_path.mkdir(parents=True, exist_ok=True)
+        metric["output_path"] = str(output_path)
+    if label_gts_path is not None:
+        metric["ground_truth_filename"] = str(Path(label_gts_path).resolve())
+
+    # 上游 test_model 通常要求 cfg.MODEL.framework == 'BMNLocalizer'; 我们这里假设 cfg 已对齐 (训练 + eval 同源)
+    try:
+        _, _, test_model = _get_paddlevideo_api()
+        # 注意: 上游 BMNMetric 通过 @METRIC.register 装饰, 该装饰器返回 None,
+        # 导致 ``paddlevideo.metrics.bmn_metric.BMNMetric`` 模块属性值为 None.
+        # 必须经 registry 拿真实类.
+        import paddlevideo.metrics.bmn_metric  # noqa: F401 -- trigger registration side effect
+        from paddlevideo.metrics.registry import METRIC as _METRIC
+        BMNMetric = _METRIC.get("BMNMetric")
+        if BMNMetric is None:
+            raise UpstreamRuntimeError("METRIC registry 中没有 'BMNMetric'; 上游版本异常.")
+    except ImportError as exc:
+        raise UpstreamRuntimeError(
+            f"无法导入上游 BMN 测试 API: {exc}; 请确认 patches 已应用、bootstrap 完成."
+        ) from exc
+
+    _log.info(
+        "BMN test_model start",
+        extra={
+            "checkpoint": str(checkpoint),
+            "subset": metric.get("subset"),
+            "result_path": metric.get("result_path"),
+        },
+    )
+
+    # 预创建上游 anet_prop.py:167 硬编码的 verbose=True 输出目录, 避免
+    # FileNotFoundError: 'data/bmn/BMN_Test_results/auc_result.txt'
+    try:
+        from pingpong_av.utils.env import find_repo_root as _frr
+        _auc_dir = _frr() / "data" / "bmn" / "BMN_Test_results"
+    except Exception:
+        _auc_dir = Path("data/bmn/BMN_Test_results")
+    _auc_dir.mkdir(parents=True, exist_ok=True)
+
+    bmn_results_json = Path(metric["result_path"]) / f"bmn_results_{metric.get('subset','validation')}.json"
+
+    if reuse_existing and bmn_results_json.is_file():
+        _log.info(
+            "BMN test_model skipped (reuse_existing=True; using cached predictions)",
+            extra={"bmn_results_json": str(bmn_results_json)},
+        )
+    else:
+        try:
+            test_model(cfg, weights=str(checkpoint), parallel=False)
+        except Exception as exc:
+            raise UpstreamRuntimeError(
+                f"上游 BMN test_model 失败: {type(exc).__name__}: {exc}"
+            ) from exc
+
+    # 上游已经把 ActivityNet 1.3 风格 JSON 写到 result_path; 重新调用 cal_metrics 拿数值
+    if not bmn_results_json.is_file():
+        raise UpstreamRuntimeError(
+            f"上游 BMNMetric 未写出预期 JSON: {bmn_results_json}. "
+            "可能是后处理多进程 crash; 请查看上一层 stdout/stderr."
+        )
+
+    import numpy as np
+    # 重新跑 cal_metrics (轻量, 只读 JSON, 不需要 GPU); 用与上游一致的 tiou_thresholds
+    # BMNMetric 是 BaseMetric 子类, 实例化时需要 file_path / ground_truth_filename / subset / output_path /
+    # result_path 等; 我们重新构造一个轻量实例只为 cal_metrics
+    try:
+        bmn_metric = BMNMetric(
+            data_size=0,
+            batch_size=1,
+            tscale=int(metric.get("tscale", 200)),
+            dscale=int(metric.get("dscale", 200)),
+            file_path=str(metric["file_path"]),
+            ground_truth_filename=str(metric["ground_truth_filename"]),
+            subset=metric.get("subset", "validation"),
+            output_path=str(metric["output_path"]),
+            result_path=str(metric["result_path"]),
+        )
+    except Exception as exc:
+        raise UpstreamRuntimeError(f"无法重建 BMNMetric 实例: {exc}") from exc
+
+    try:
+        avg_nr_proposals, avg_recall, recall = bmn_metric.cal_metrics(
+            str(metric["ground_truth_filename"]),
+            str(bmn_results_json),
+            max_avg_nr_proposals=100,
+            tiou_thresholds=np.linspace(0.5, 0.95, 10),
+            subset=metric.get("subset", "validation"),
+        )
+    except FileNotFoundError as exc:
+        # 上游 anet_prop.py:167 在 verbose=True 时硬编码写 'data/bmn/BMN_Test_results/auc_result.txt';
+        # 该路径不存在时抛 FileNotFoundError. 我们事先创建一次然后重试 (与 patch 替代).
+        if "auc_result.txt" in str(exc) or "BMN_Test_results" in str(exc):
+            from pingpong_av.utils.env import find_repo_root as _frr
+            try:
+                fallback = _frr() / "data" / "bmn" / "BMN_Test_results"
+            except Exception:
+                fallback = Path("data/bmn/BMN_Test_results")
+            fallback.mkdir(parents=True, exist_ok=True)
+            _log.warning(
+                "BMN cal_metrics: created upstream-hardcoded dir to satisfy verbose=True path",
+                extra={"dir": str(fallback)},
+            )
+            avg_nr_proposals, avg_recall, recall = bmn_metric.cal_metrics(
+                str(metric["ground_truth_filename"]),
+                str(bmn_results_json),
+                max_avg_nr_proposals=100,
+                tiou_thresholds=np.linspace(0.5, 0.95, 10),
+                subset=metric.get("subset", "validation"),
+            )
+        else:
+            raise UpstreamRuntimeError(f"BMNMetric.cal_metrics 失败: {exc}") from exc
+    except Exception as exc:
+        raise UpstreamRuntimeError(f"BMNMetric.cal_metrics 失败: {exc}") from exc
+
+    # avg_recall 是按 max_avg_nr_proposals=100 输出, 形状 [100,], 索引 0/4/9/99 即 AR@1/5/10/100
+    def _ar_at(idx: int) -> float:
+        try:
+            return float(np.mean(recall[:, idx])) * 100.0
+        except (IndexError, ValueError):
+            return float("nan")
+
+    # 计 count
+    import json as _json
+    with bmn_results_json.open("r", encoding="utf-8") as f:
+        bmn_json = _json.load(f)
+    n_videos = len(bmn_json.get("results", {}))
+    n_proposals = sum(len(v) for v in bmn_json.get("results", {}).values())
+
+    out = {
+        "ar@1": _ar_at(0),
+        "ar@5": _ar_at(4),
+        "ar@10": _ar_at(9),
+        "ar@100": _ar_at(-1),
+        "average_nr_proposals": avg_nr_proposals.tolist() if hasattr(avg_nr_proposals, "tolist") else list(avg_nr_proposals),
+        "average_recall":       avg_recall.tolist()       if hasattr(avg_recall, "tolist")       else list(avg_recall),
+        "result_path":     str(metric["result_path"]),
+        "bmn_results_json": str(bmn_results_json),
+        "n_videos_evaluated": n_videos,
+        "n_proposals":        n_proposals,
+        "subset":             metric.get("subset", "validation"),
+    }
+    _log.info(
+        "BMN eval done",
+        extra={"ar@1": out["ar@1"], "ar@100": out["ar@100"],
+               "n_videos": n_videos, "n_proposals": n_proposals},
+    )
+    return out
 
 
 def run_upstream_infer(

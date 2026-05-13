@@ -188,7 +188,7 @@ pp eval --checkpoint experiments/<run_id>/checkpoints/best.pdparams
 **产出**:
 - JSON 写入 `--output` (默认 `experiments/<run_id>/metrics.json`); 同时追加到 `manifest.json`.
 
-**JSON schema (metrics-v1)**:
+**JSON schema (metrics-v1, PP-TSM 路径)**:
 ```json
 {
   "schema": "metrics-v1",
@@ -207,7 +207,42 @@ pp eval --checkpoint experiments/<run_id>/checkpoints/best.pdparams
 }
 ```
 
-**章程约束**: V (必须含 top1/top5/per-class/macro-avg), IV (禁止反复测试集选型), II (结果写回 manifest).
+**JSON schema (bmn-eval-v1, BMN 时序定位路径; FR-029 / SC-009)**:
+
+BMN 模型 (model.name=bmn) 自动走时序定位评估分支, 与 PP-TSM 路径**共用 cli 入口**但输出不同 schema:
+```json
+{
+  "schema": "bmn-eval-v1",
+  "checkpoint": "experiments/.../BMN_epoch_00007.pdparams",
+  "run_id": "20260512-145311-09f9d63-train-bmn_pingpong",
+  "split": "val",
+  "subset": "validation",
+  "n_videos_evaluated": 1967,
+  "n_proposals": 196700,
+  "metrics": {
+    "ar@1":   28.78,
+    "ar@5":   59.17,
+    "ar@10":  68.27,
+    "ar@100": 80.37
+  },
+  "class_names": ["摆短", "拉", "控制", "侧身拉", "劈长", "拧", "挑", "侧旋", "转不转", "中性", "勾球", "普通", "逆旋转", "下蹲"],
+  "result_path": "experiments/.../bmn_eval/results/bmn_results_validation.json"
+}
+```
+
+BMN 评估特性:
+- **默认 ``reuse_existing=True``** (FR-030): 若同 ckpt 的 ``bmn_results_<subset>.json`` 已存在, 跳过 GPU 前向, 仅重算 metrics (~30s 而非 ~8min). 用于训练并行 / 调参 / 失败重试.
+- **AR@AN** (Average Recall at Average Number of proposals) 取代 top1/top5, 是 ActivityNet 1.3 检索 + 时序定位的标准指标.
+- ``result_path`` 指向上游写出的 ActivityNet 1.3 风格 JSON, 含 per-video proposals 列表, 可被下游 NMS / 后处理工具直接消费.
+- ``data/bmn/BMN_Test_results/`` 目录由 eval 自动创建以满足上游 ``anet_prop.py:167`` 硬编码路径 (FR-031), 已加入 ``.gitignore``.
+
+**checkpoint 路径布局 (FR-032)**:
+- PP-TSM: ``<run>/checkpoints/best.pdparams``
+- BMN: ``<run>/BMN_epoch_NNNNN.pdparams`` (上游直接写到 run 根目录, 命名按 epoch)
+
+``_find_run_dir`` 自动识别两种布局, 不需要用户指定.
+
+**章程约束**: V (必须含 top1/top5/per-class/macro-avg 或 AR@AN), IV (禁止反复测试集选型), II (结果写回 manifest).
 
 ---
 

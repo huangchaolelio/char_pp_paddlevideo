@@ -23,6 +23,9 @@
 - Q: 上游 8 个动作类别的具体名称是什么? → A: 上游 README 与 yaml 均**未公布**, AI Studio 竞赛 #127 的 metadata 中可能有; 本项目代码用 `动作0..动作7` 占位, 用户从 AI Studio 拿到真实 metadata 后应自行替换 (与 `pingpong_public.yaml` 的 8 类占位同步).
 - Q: AI Studio 数据集的真实形态是什么? → A: 用户在 COS bucket 上传后实地探测确认: 数据集是 **PP-TSN 预提取特征** (43.5GB tar.gz, 含 729 段视频 × ~9000 帧 × 2048 维) + **时序动作标注** (`label_cls14_train.json`, 19054 个 actions, 14 类), 用于上游 **BMN (Boundary-Matching Network) 时序定位**任务, **不是**视频动作分类 (PP-TSM 的领域). 真实 14 类已通过实地解析 JSON 拿到 (摆短/拉/控制/侧身拉/劈长/拧/挑/侧旋/转不转/中性/勾球/普通/逆旋转/下蹲).
 - Q: 在 43GB+ 的私有 COS 数据集上能跑通端到端训练吗? → A: **新增 US6 + FR-023~028 + SC-008**, 通过 `source.type: cos` 模式 + `_try_read_bmn_features` 路径 + `scripts/prepare_bmn_inputs.py` + `models/bmn.py` loader, 加上 patches 03 (inspect.getargspec) + 04 (Tensor[0] → .item()) 解决上游 Python 3.11/paddle 2.6+ 兼容性. 实测训练循环成功启动: 16107 train videos / 1967 val videos, GPU 100% 利用, loss 1.77 → 0.81 在前 1050 step 内, batch_cost 1.07s/step.
+- Q: BMN 模型的 eval 输出 schema 与 PP-TSM 一致吗 (top1/top5)? → A: **完全不同**. PP-TSM 是片段分类 (logits[N, C]), 评估指标是 top1/top5 + per-class precision/recall + macro-avg. BMN 是时序定位 (输出候选区间 [start, end, score]), 评估指标是 ActivityNet 1.3 风格 AR@AN (Average Recall at Average Number of proposals) + AUC. 因此 `pp eval` 在 cli 层按 `model.name` 分支 (新增 FR-029), 输出文件名相同 (`<run>/metrics.json`), 但 schema 不同 — PP-TSM 用 `metrics-v1`, BMN 用 `bmn-eval-v1`. 实测 epoch 7/20 ckpt: AR@1=28.78%, AR@100=80.37%, AUC=74.63%, n_videos=1967, n_proposals=196700 (SC-009 通过).
+- Q: BMN eval 和 BMN 训练能在同一 GPU 上并行跑吗? → A: 危险但可行. T4 15GB, 训练用 7.1GB; eval 前向需要再 ~6GB. 在已有 cached predictions 的情况下, eval 跳过 GPU 前向只跑 cal_metrics (~30s, 纯 CPU + 12 进程 NMS), 与训练几乎不冲突. **新增 FR-030 reuse_existing 模式**: 默认开启, 让用户中途用 cached 预测复算 metrics, 不抢 GPU.
+- Q: 上游 anet_prop.py 在 verbose=True 时写到一个硬编码的 'data/bmn/BMN_Test_results/auc_result.txt', 这个目录怎么处理? → A: **不打 patch** (路径硬编码深, 改一行需要侵入). 改为在 `run_upstream_bmn_eval` 调用前用 Python 预创建该目录 (FR-031). 该目录纯运行时输出 (AUC 文本), 已加入 `.gitignore`.
 
 ## 用户场景与测试 *(必填)*
 
@@ -180,6 +183,10 @@
 - **FR-026**: 系统必须提供 ``scripts/prepare_bmn_inputs.py`` 把上游原始 GT JSON 转换为 BMN 训练所需的 ``label_fixed.json`` + ``label_gts.json`` + ``feature/*.npy`` 滑窗切片, 并自动过滤 (`miss > 0` 时) 没有对应 .npy 的 label 条目以避免 dataloader 文件不存在错误.
 - **FR-027**: 系统必须把 BMN 模型纳入 ``models/registry.py``, 并通过 ``configs/models/bmn_pingpong.yaml`` 的业务配置 + ``models/bmn.py`` loader 在运行时合并到上游 ``bmn_tabletennis.yaml`` 模板; 业务 yaml 仅允许覆盖路径与 epochs/batch_size, 网络结构由上游提供.
 - **FR-028**: 当上游 release/2.2.0 在 Python 3.11 / paddle 2.6+ 下 BMN 训练触发的兼容性问题 (`inspect.getargspec` 已删除; `Tensor.numpy()[0]` 对 0-d 张量报错) 时, 系统必须通过 ``third_party/patches/`` 提供最小侵入修复 (patches 03 + 04), 与 patches 01 + 02 一同由 ``apply_upstream_patches.sh`` 按字母序幂等应用.
+- **FR-029**: `pp eval` 必须根据训练时 snapshot 的 ``model.name`` 字段分支: ``pp_tsm`` 走原有 logits→top1/top5/per-class/macro-avg 路径; ``bmn`` 走时序定位路径 → 调用上游 ``test_model`` (BMNMetric 输出 ActivityNet 1.3 风格 ``bmn_results_<subset>.json``) → 再调 ``cal_metrics`` 拿到 AR@1/5/10/100, 写入 ``bmn-eval-v1`` schema. 两条路径**共享同一 CLI 子命令**, 输出文件路径相同 (``<run>/metrics.json``), schema 不同; 调用方按 ``schema`` 字段判别.
+- **FR-030**: BMN eval 必须支持 ``reuse_existing=True`` 模式 (默认): 当 ``<run>/bmn_eval/results/bmn_results_<subset>.json`` 已存在时, 跳过 GPU 前向, 仅重算 metrics. 用于: (a) 训练并行时避免 GPU 争抢; (b) 同一 ckpt 上调 tIoU 阈值或其他后处理参数; (c) 失败重试.
+- **FR-031**: BMN eval 必须自动创建上游 ``anet_prop.py`` 在 ``verbose=True`` 时硬编码写入的 ``data/bmn/BMN_Test_results/`` 目录 (用作 AUC 文件 ``auc_result.txt`` 的落点), 避免 ``FileNotFoundError`` 中断评估. 此目录全部在 ``.gitignore`` 中.
+- **FR-032**: ``_find_run_dir`` 必须支持两种 ckpt 布局: PP-TSM 路径下 ``<run>/checkpoints/<ckpt>``; BMN 路径下 ``<run>/BMN_epoch_<NNNNN>.pdparams`` (上游直接写到 run 根目录). 判定标准是父目录链中第一个含 ``manifest.json`` 的目录.
 
 #### 可复现性与工程化
 
@@ -208,6 +215,7 @@
 - **SC-006**: 至少 90% 的输入异常情况(损坏视频、不支持格式、过短片段)在推理过程中被捕获并跳过, 不会引发整体进程崩溃。
 - **SC-007**: 在 PaddleVideo 官方提供的 `example_tennis.pkl` 上, 使用官方 `VideoSwin_tennis.pdparams` 权重通过 `pp infer-pkl` 推理, Top-1 预测必须等于 pkl 内的 `ground_truth.动作类型` 真值, 且 Top-1 置信度 ≥ 0.90. (此项是 US5 的硬验收门槛, 与 SC-002 不同 — SC-002 需要 AI Studio 真实训练数据, SC-007 不需要.)
 - **SC-008**: US6 BMN 端到端验收: 在 COS 上的 `Features_competition_train.tar.gz` (43.5GB) + `label_cls14_train.json` 数据集上, `pp data-prepare → scripts/prepare_bmn_inputs.py → pp train --config configs/models/bmn_pingpong.yaml --allow-dirty` 必须能成功启动训练循环, 前 1000 step 内 loss 显式下降 (起点 1.7+, 第 1000 step ≤ 1.5), GPU 利用率 ≥ 95%, 不出现 dataloader / IndexError / 上游 API 兼容性错误. (Loss 收敛至业务可用值 < 0.5 的硬门槛留作 Phase 9 / 完整 20 epoch 训练后再验; 本 SC 只验**架构通**.)
+- **SC-009**: BMN eval 端到端验收: 给定 BMN checkpoint + ``upstream_config.yaml`` snapshot, ``pp eval --checkpoint <ckpt> --split val`` 必须输出符合 ``bmn-eval-v1`` schema 的 ``metrics.json``, 含 AR@1/5/10/100 四个数值 + ``n_videos_evaluated`` + ``n_proposals`` + ``class_names``. AR@100 必须 ≥ 60% (即模型确实学到了边界, 不是随机猜). 实测: 在 epoch 7/20 ckpt 上 AR@1=28.78%, AR@5=59.17%, AR@10=68.27%, AR@100=80.37%, AUC=74.63% — 通过.
 
 ## 假设
 

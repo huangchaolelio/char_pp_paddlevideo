@@ -48,7 +48,7 @@ dataset:
 
 # ---- 训练 ----
 train:
-  epochs: 1    # smoke 测试; 上游默认 20 (业务实战推荐 20+)
+  epochs: 20   # 上游推荐值 (bmn_tabletennis.yaml 默认); 在 T4 上预计 ~22-24h
   optimizer: adam
   # 学习率与 LR schedule 完全继承上游 bmn_tabletennis.yaml::OPTIMIZER (本项目不覆盖)
 

@@ -38,6 +38,8 @@ dist/
 data/raw/**
 data/clips/**
 data/bmn_inputs/
+# 上游 anet_prop.py 硬编码 'data/bmn/BMN_Test_results/auc_result.txt' 输出目录
+data/bmn/
 
 # ============================================================
 # 章程 IV 反向规则: data/splits/ 下的划分文件**必须**入库
