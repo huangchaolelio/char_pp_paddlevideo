@@ -35,6 +35,8 @@ __all__ = [
     "PPTSMExtractor",
     "PPTSMExtractorError",
     "ExtractorConfig",
+    "ActionPrototypeClassifier",
+    "ProtoClassifyResult",
 ]
 
 from pingpong_av.extractors.clip_id import compute_clip_id
@@ -53,4 +55,8 @@ from pingpong_av.extractors.pp_tsm_inference import (
     ExtractorConfig,
     PPTSMExtractor,
     PPTSMExtractorError,
+)
+from pingpong_av.extractors.action_classifier import (
+    ActionPrototypeClassifier,
+    ProtoClassifyResult,
 )

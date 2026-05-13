@@ -309,11 +309,20 @@ def build_feature_pkls_cmd(videos_dir: str, output_dir: str, gt_json: str | None
               type=click.Path(exists=True, dir_okay=False),
               default="configs/models/bmn_pingpong.yaml",
               help="BMN 业务 YAML.")
+@click.option("--prototypes", "prototypes_path",
+              type=click.Path(dir_okay=False), default=None,
+              help="(可选) 原型分类器 .npy 路径; 不传则 timeline 中 label_name=unknown. "
+                   "推荐: data/raw/pretrained/prototypes/action_prototypes_14.npy "
+                   "(由 scripts/build_action_prototypes.py 产出).")
 def infer_rawvideo_cmd(input_path: str, bmn_checkpoint: str, output_dir: str,
                        threshold: float, min_duration: float,
                        allow_dirty: bool, keep_frames: bool, keep_features: bool,
-                       no_visualize: bool, extractor_config: str, bmn_config: str) -> None:
-    """端到端原始视频推理: mp4 → timeline.json + 可视化 mp4 (002 feature, FR-039/040)."""
+                       no_visualize: bool, extractor_config: str, bmn_config: str,
+                       prototypes_path: str | None) -> None:
+    """端到端原始视频推理: mp4 → timeline.json + 可视化 mp4 (002 feature, FR-039/040).
+
+    可选 --prototypes 加载 14 类原型分类器, 为每个 BMN proposal 标 label_name (中文).
+    """
     from pingpong_av.cli import infer_rawvideo as _real
     sys.exit(_real.run(
         input_path=input_path,
@@ -327,6 +336,7 @@ def infer_rawvideo_cmd(input_path: str, bmn_checkpoint: str, output_dir: str,
         no_visualize=no_visualize,
         extractor_config=extractor_config,
         bmn_config=bmn_config,
+        prototypes_path=prototypes_path,
     ))
 
 

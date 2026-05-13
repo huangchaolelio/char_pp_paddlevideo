@@ -43,6 +43,7 @@ def run(
     no_visualize: bool,
     extractor_config: str,
     bmn_config: str,
+    prototypes_path: str | None = None,
 ) -> int:
     """`pp infer-rawvideo` 入口. 返回退出码."""
     t_start = time.time()
@@ -201,6 +202,41 @@ def run(
     stage_t0 = time.time()
     click.echo("[5/5] 写 timeline.json...", err=True)
 
+    # 7a. 可选加载原型分类器 (003 feature, label_name 不再 unknown)
+    classifier = None
+    feature_arr = None   # 整段视频特征 (N, 2048), 分类用
+    if prototypes_path:
+        proto_p = Path(prototypes_path)
+        if not proto_p.is_absolute():
+            proto_p = Path(__file__).resolve().parents[3] / prototypes_path
+        if proto_p.is_file():
+            try:
+                from pingpong_av.extractors import ActionPrototypeClassifier
+                classifier = ActionPrototypeClassifier(proto_p, classes_meta, topk=3)
+                # 加载视频整段特征 (从 feature.pkl)
+                import pickle
+                with feature_pkl.open("rb") as _f:
+                    feature_arr = pickle.load(_f)["image_feature"]
+                click.echo(
+                    f"  [classifier] 原型加载 (n_classes={classifier.n_classes}, "
+                    f"meta_loo_acc={classifier.metadata.get('accuracy_leave_one_out', 'N/A'):.3f})",
+                    err=True,
+                )
+            except Exception as exc:
+                click.echo(
+                    f"WARN: 原型分类器加载失败 ({type(exc).__name__}: {exc}); "
+                    f"将退化到 label_name=unknown",
+                    err=True,
+                )
+                classifier = None
+                feature_arr = None
+        else:
+            click.echo(
+                f"WARN: 原型文件不存在 ({proto_p}); 将退化到 label_name=unknown\n"
+                f"  请先运行: .venv/bin/python scripts/build_action_prototypes.py",
+                err=True,
+            )
+
     bmn_results_json = Path(bmn_metrics["bmn_results_json"])
     try:
         bmn_data = json.loads(bmn_results_json.read_text(encoding="utf-8"))
@@ -229,23 +265,45 @@ def run(
             start_sec = float(seg[0]) + win_start
             end_sec   = float(seg[1]) + win_start
             score     = float(p.get("score", 0.0))
-            label_id  = int(p.get("label", -1))  # BMN 默认 0 (single proposal)
-            label_name = (
-                class_names[label_id]
-                if 0 <= label_id < len(class_names)
-                else "unknown"
-            )
-            # 过滤: score / duration
+
+            # 过滤: score / duration (在分类前过滤, 节省 cosine 计算)
             if score < threshold:
                 continue
             if (end_sec - start_sec) < min_duration:
                 continue
+
+            # 分类: 原型匹配 (如果分类器已加载) 或退化到 BMN raw label (上游不出 label, 默认 -1)
+            label_id: int = -1
+            label_name: str = "unknown"
+            cls_score: float = float("nan")
+            topk_cls: list[dict[str, Any]] = []
+
+            if classifier is not None and feature_arr is not None:
+                try:
+                    result = classifier.classify_segment(
+                        feature_arr=feature_arr,
+                        start_sec=start_sec,
+                        end_sec=end_sec,
+                        duration_sec=duration_sec,
+                    )
+                    label_id = result.label_id
+                    label_name = result.label_name
+                    cls_score = result.cls_score
+                    topk_cls = [
+                        {"label_id": i, "label_name": n, "cls_score": round(s, 4)}
+                        for i, n, s in result.topk
+                    ]
+                except Exception:
+                    pass
+
             all_segments.append({
                 "start_sec":      round(start_sec, 3),
                 "end_sec":        round(end_sec, 3),
                 "label_id":       label_id,
                 "label_name":     label_name,
-                "score":          round(score, 4),
+                "score":          round(score, 4),       # BMN proposal score
+                "cls_score":      round(cls_score, 4) if cls_score == cls_score else None,   # cosine similarity
+                "topk":           topk_cls,
                 "rank_in_window": rank,
             })
 
@@ -287,6 +345,12 @@ def run(
             "min_duration":            min_duration,
             "ar_at":                   None,
         },
+        "classifier": {
+            "type":                "prototype" if classifier is not None else None,
+            "prototypes_path":     str(Path(prototypes_path).resolve()) if (prototypes_path and classifier is not None) else None,
+            "n_classes":           classifier.n_classes if classifier is not None else None,
+            "metadata_loo_acc":    classifier.metadata.get("accuracy_leave_one_out") if classifier is not None else None,
+        } if True else None,
         "produced_at":              datetime.now(timezone.utc).isoformat(),
         "results":                  all_segments,
     }
